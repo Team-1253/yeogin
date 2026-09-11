@@ -48,6 +48,20 @@ def test_place_조사를_장소로_오인하지_않는다():
     assert merged.duration_minutes == 120
 
 
+def test_place_부분일치를_단어로_끊는다():
+    """ "임시청사"를 "시청"으로 보지 않습니다."""
+    assert extract_place("임시청사 근처 주차장") == "임시청사"
+    assert extract_place("시청역 근처 주차장") == "시청역"
+    assert extract_place("시청 주차장") == "시청"
+    assert extract_place("강남역 근처") == "강남역"
+
+
+def test_place_범위부사를_장소로_보지_않는다():
+    """ "만원 이하로"의 이하로를 장소로 보지 않습니다."""
+    assert extract_place("만원 이하로 찾아줘") == ""
+    assert extract_place("3만원 이내로 역삼역 근처") == "역삼역"
+
+
 # --------------------------------------------------------------------------
 # 시간 도구
 # --------------------------------------------------------------------------
@@ -70,6 +84,19 @@ def test_duration_없으면_None을_둔다():
     assert extract_duration("강남역 근처 주차장") is None
 
 
+def test_duration_복합시간을_합산한다():
+    """1시간 30분은 90분입니다."""
+    assert extract_duration("강남역 근처 1시간 30분 주차") == 90
+    assert extract_duration("강남역 근처 두시간 30분 주차") == 150
+
+
+def test_duration_일단위를_분으로_바꾼다():
+    """하루·1박2일은 일 단위로 계산합니다."""
+    assert extract_duration("강남역 근처 하루 주차") == 1440
+    assert extract_duration("강남역 근처 종일 주차") == 1440
+    assert extract_duration("강남역 근처 1박2일 주차") == 2880
+
+
 # --------------------------------------------------------------------------
 # 예산 도구
 # --------------------------------------------------------------------------
@@ -86,6 +113,13 @@ def test_budget_없으면_None을_둔다():
     assert extract_budget("강남역 근처 2시간 주차") is None
 
 
+def test_budget_혼합단위와_한글숫자를_다룬다():
+    """1만 5천원은 15000원, 오만원은 50000원입니다."""
+    assert extract_budget("1만 5천원 이하") == 15000
+    assert extract_budget("오만원 이하") == 50000
+    assert extract_budget("수만원 이하") is None
+
+
 # --------------------------------------------------------------------------
 # 정렬 도구
 # --------------------------------------------------------------------------
@@ -94,6 +128,7 @@ def test_budget_없으면_None을_둔다():
 def test_sort_가격의도가_있을때만_price다():
     """S4: 비싸다는 가격 정렬 의도입니다."""
     assert extract_sort("너무 비싸") == "price"
+    assert extract_sort("강남역 가성비 주차장") == "price"
     assert extract_sort("강남역 근처 2시간 주차, 만원 이하") == "distance"
 
 
@@ -294,8 +329,12 @@ def test_llm_모듈이_없어도_예외없이_폴백한다(monkeypatch):
 
 
 def test_llm_장소_접미사를_걷어낸다():
-    """LLM이 붙인 근처·주차장을 제거합니다."""
+    """LLM이 붙인 근처·주차장과 조사를 제거합니다."""
     assert extract_mod._clean_place("강남역 근처") == "강남역"
+    assert extract_mod._clean_place("홍대입구 주차장") == "홍대입구"
+    assert extract_mod._clean_place("강남역에") == "강남역"
+    assert extract_mod._clean_place("은평구에서는") == "은평구"
+    assert extract_mod._clean_place("역삼로") == "역삼로"
     assert extract_mod._clean_place("홍대입구 주차장") == "홍대입구"
 
 
@@ -350,6 +389,7 @@ def test_게이트가_필요한_슬롯만_고른다():
     assert extract_mod._needed_slots("너무 비싸") == ["sort"]
     assert extract_mod._needed_slots("2시간으로 바꿔줘") == ["duration"]
     assert extract_mod._needed_slots("주차장 찾아줘") == []
+    assert extract_mod._needed_slots("공원 근처 주차장") == ["place"]
 
 
 def test_후속발화는_해당슬롯만_호출한다(monkeypatch):
