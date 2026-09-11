@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+import os
+
 from .context import is_llm_disabled
 from .types import RankingParams, RankResult, RequestContext
 
 FIELD_LABELS = {"duration_minutes": "주차 시간은 1시간 기준"}
+REQUIRED_NOTICE = "현재 조회 데이터 기준"
 
 
 def format_answer(result: RankResult, params: RankingParams, ctx: RequestContext) -> str:
@@ -55,7 +58,43 @@ def _format_by_template(result: RankResult, params: RankingParams) -> str:
 def _format_by_llm(result, params, ctx) -> str | None:
     """LLM으로 설명 문장을 생성합니다.
 
-    TODO(P6): Recommendation 값을 그대로 인용하도록 프롬프트를 작성하십시오.
-    숫자를 새로 만들거나 반올림하지 않도록 명시해야 합니다.
+    LLM은 설명의 자연스러움만 담당하고, 추천 수치의 원천은 ``result``로
+    고정합니다. LangChain을 지연 import하므로 규칙 기반 모드와 API 키가
+    없는 환경에서도 모듈 import가 실패하지 않습니다.
     """
-    return None
+    try:
+        from langchain_core.output_parsers import StrOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_openai import ChatOpenAI
+
+        recommendations = "\n".join(
+            f"{r.rank}. {r.name} | 거리={r.distance_m}m | 요금={r.fee_text} | "
+            f"잔여={r.availability_text} | 운영={r.hours_text}"
+            for r in result.recommendations
+        )
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "당신은 주차장 추천 안내문 작성자입니다.\n"
+                    "아래 Recommendation의 값을 그대로 인용하고 숫자를 새로 만들거나 "
+                    "반올림하지 마시오. Recommendation에 없는 주차장명, 금액, 거리, "
+                    "잔여면, 시각을 추가하지 마시오.\n"
+                    f"반드시 '{REQUIRED_NOTICE}' 문구를 포함하시오.\n"
+                    "간결한 한국어로 답하고, 추천 후보가 제공한 순서를 유지하시오.\n\n"
+                    "Recommendation:\n{recommendations}",
+                ),
+                ("human", "{place} 근처 주차장 추천을 안내해 주세요."),
+            ]
+        )
+        model = ChatOpenAI(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            temperature=0,
+        )
+        answer_chain = prompt | model | StrOutputParser()
+        response = answer_chain.invoke(
+            {"place": params.place, "recommendations": recommendations}
+        )
+        return response.strip() if isinstance(response, str) and response.strip() else None
+    except Exception:
+        return None

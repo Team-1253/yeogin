@@ -38,12 +38,22 @@ def rank_candidates(
 
 
 def _sort_key(sort_by: str):
-    """정렬 기준을 반환합니다. 잔여 정보 미제공 후보는 후순위로 밉니다."""
+    """정렬 기준을 반환합니다.
+
+    잔여 정보가 확인되는 후보를 먼저 배치한 뒤, 선택한 기본 기준의
+    확인 불가 값(``None``)을 후순위로 보냅니다. 모든 키가 같은 후보는
+    ``sorted``의 안정 정렬에 따라 입력 순서를 유지합니다.
+    """
 
     def key(e: Evaluation):
-        unknown = 1 if e.lot.available_slots is None else 0
-        primary = e.estimated_fee if sort_by == "price" else e.distance_m
-        return (unknown, primary if primary is not None else 10**9, e.distance_m)
+        availability_unknown = e.lot.available_slots is None
+        if sort_by == "price":
+            primary_missing = e.estimated_fee is None
+            primary = e.estimated_fee if e.estimated_fee is not None else 0
+        else:
+            primary_missing = False
+            primary = e.distance_m
+        return (availability_unknown, primary_missing, primary, e.distance_m)
 
     return key
 
