@@ -12,14 +12,18 @@ from ..types import (
     ParkingLot,
     Place,
     RankingParams,
+    Rejection,
     RejectReason,
     RequestContext,
+    SearchResult,
 )
 from .geocode import haversine_m
 
+MINUTES_PER_DAY = 24 * 60
+
 
 def evaluate_candidates(
-    search,
+    search: SearchResult,
     destination: Place,
     params: RankingParams,
     ctx: RequestContext,
@@ -33,7 +37,7 @@ def evaluate_candidates(
     assumed = [] if params.duration_minutes else ["duration_minutes"]
 
     passed: list[Evaluation] = []
-    rejected: list = []
+    rejected: list[Rejection] = []
 
     for lot in search.lots:
         reasons: list[RejectReason] = []
@@ -58,8 +62,6 @@ def evaluate_candidates(
             reasons.append("예산 초과")
 
         if reasons:
-            from ..types import Rejection
-
             rejected.append(Rejection(lot_name=lot.name, reasons=reasons))
             continue
 
@@ -81,9 +83,6 @@ def evaluate_candidates(
 
 def _check_hours(lot: ParkingLot, ctx: RequestContext) -> tuple[bool, int | None]:
     """운영 여부와 마감까지 남은 분을 반환합니다.
-
-    TODO(P5): 요일 구분(ctx.day_type)별 운영시간 필드를 반영하십시오.
-    24시간 운영이면 (True, None)을 반환합니다.
     """
     if not lot.open_time or not lot.close_time:
         return True, None
@@ -93,9 +92,18 @@ def _check_hours(lot: ParkingLot, ctx: RequestContext) -> tuple[bool, int | None
     now = ctx.request_time.hour * 60 + ctx.request_time.minute
     open_m = int(lot.open_time[:2]) * 60 + int(lot.open_time[2:])
     close_m = int(lot.close_time[:2]) * 60 + int(lot.close_time[2:])
-    if not (open_m <= now < close_m):
-        return False, 0
-    return True, close_m - now
+
+    if open_m < close_m:
+        if not (open_m <= now < close_m):
+            return False, 0
+        return True, close_m - now
+
+    # 자정을 넘기는 운영시간입니다. 예: 22:00~02:00
+    if now >= open_m:
+        return True, MINUTES_PER_DAY - now + close_m
+    if now < close_m:
+        return True, close_m - now
+    return False, 0
 
 
 def _calculate_fee(
