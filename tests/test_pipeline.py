@@ -27,3 +27,29 @@ def test_출력_가드레일이_항상_판정한다(ctx):
     """모든 응답에 verdict가 존재합니다."""
     response = run("강남역 근처 2시간 주차", ctx)
     assert response.verdict in ("SAFE", "UNSAFE")
+
+
+def test_모호하면_후보를_pending에_담는다(ctx, monkeypatch):
+    """모호성 해소 질문과 함께 다음 턴 선택용 후보를 돌려줍니다."""
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    response = run("시청 근처 주차장", ctx)
+    assert response.rank_result is None
+    assert response.pending is not None and len(response.pending) == 2
+
+
+def test_다음턴_번호선택이_후보를_확정한다(ctx, monkeypatch):
+    """숫자 선택은 geocode 재호출 없이 대기 후보로 확정됩니다."""
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    first = run("시청 근처 주차장", ctx)
+    second = run("1", ctx, first.params, first.pending)
+    assert second.answer != first.answer
+    assert second.pending is None
+
+
+def test_범위밖_선택은_다시_묻는다(ctx, monkeypatch):
+    """후보 범위를 벗어나면 다시 묻고 pending을 유지합니다."""
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    first = run("시청 근처 주차장", ctx)
+    second = run("9", ctx, first.params, first.pending)
+    assert second.answer == first.answer
+    assert second.pending is not None

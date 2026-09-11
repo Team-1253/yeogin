@@ -258,6 +258,8 @@ class AgentResponse:
     answer: str
     params: RankingParams
     rank_result: RankResult | None = None
+    #: 모호성 해소 대기 중인 후보입니다. 다음 턴에 run()의 pending으로 넘깁니다.
+    pending: list[Place] | None = None
     #: 출력 가드레일 판정입니다. "SAFE" 또는 "UNSAFE"입니다.
     verdict: str = "SAFE"
     verdict_reason: str | None = None
@@ -287,6 +289,8 @@ class ParkingState(TypedDict, total=False):
 
     geocode_result: GeocodeResult
     destination: Place | None
+    #: 모호성 해소 대기 중인 후보입니다. 다음 턴의 선택("1", 후보명)으로 확정합니다.
+    pending: list[Place] | None
 
     search_result: SearchResult
     evaluation_result: EvaluationResult

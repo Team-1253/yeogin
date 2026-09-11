@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 
 from ..types import GeocodeResult, Place, RequestContext
 
@@ -37,6 +38,23 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
     dl = math.radians(lng2 - lng1)
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return int(2 * r * math.asin(math.sqrt(a)))
+
+
+def resolve_choice(candidates: list[Place], utterance: str) -> Place | None:
+    """대기 후보 중에서 사용자 선택을 확정합니다.
+
+    "1", "1번" 같은 번호나 후보명의 일부를 받습니다. 범위를 벗어나거나
+    후보와 무관한 발화면 None을 돌려 정상 신규 검색으로 넘깁니다.
+    """
+    text = utterance.strip()
+    if m := re.match(r"^(\d+)\s*번?$", text):
+        idx = int(m.group(1)) - 1
+        return candidates[idx] if 0 <= idx < len(candidates) else None
+    if len(text) >= 2:
+        for cand in candidates:
+            if text in cand.name or cand.name in text:
+                return cand
+    return None
 
 
 def geocode_place(place: str, ctx: RequestContext) -> GeocodeResult:

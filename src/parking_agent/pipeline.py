@@ -7,17 +7,20 @@ LCEL execution graph를 호출하는 compatibility facade입니다.
 
 from __future__ import annotations
 
-from .types import AgentResponse, RankingParams, RequestContext
+from .types import AgentResponse, Place, RankingParams, RequestContext
 
 
 def run(
     utterance: str,
     ctx: RequestContext,
     prev_params: RankingParams | None = None,
+    pending: list[Place] | None = None,
 ) -> AgentResponse:
     """사용자 발화 1건을 처리해 최종 응답을 반환합니다.
 
     기존 시그니처를 유지한 채 내부적으로 LCEL 파이프라인을 invoke합니다.
+    pending은 직전 턴의 모호성 해소 대기 후보로, response.pending으로 돌려받아
+    다음 턴에 그대로 넘깁니다.
     """
     from .chains.parking_pipeline import _to_response, parking_pipeline
 
@@ -25,6 +28,7 @@ def run(
         "utterance": utterance,
         "prev_params": prev_params,
         "ctx": ctx,
+        "pending": pending,
     }
 
     # parking_pipeline은 ParkingState를 반환한다

@@ -215,3 +215,14 @@
 
 - 통합본(dev, `2158cf3`, origin 동기화) 실행검증: rule `45 passed, 4 skipped` +
   live 전체 **`49 passed**`. 푸시 후 동일 결과 재현.
+
+### 5.4 모호성 선택 해소 (pending)
+
+- 결함: 되묻기 후 "1" 입력이 신규 검색으로 처리되어 같은 질문 무한 반복.
+  원인 — 파이프라인에 선택 대기 상태가 없고 `run()`은 `prev_params`만 수신.
+- 조치: `ParkingState.pending` + `AgentResponse.pending` 추가.
+  `tools/geocode.resolve_choice` (번호/후보명, 범위 밖은 None),
+  `geocode_stage` 선두에서 확정 시 geocode 생략, `validate_stage`는 선택 턴 통과,
+  `run(..., pending=None)` + `demo_cli` 턴 전달.
+- 검증: rule `48 passed, 4 skipped` + live 전체 **`52 passed`**.
+  "2번"→2번 후보 확정, "9"→재질문+pending 유지 실증.

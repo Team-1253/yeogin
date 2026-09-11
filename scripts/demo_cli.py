@@ -46,6 +46,7 @@ def main() -> None:
     _load_dotenv()
     ctx = build_context(user_lat=37.4979, user_lng=127.0276)
     prev = None
+    pending = None
 
     if len(sys.argv) > 1:
         response = run(sys.argv[1], ctx)
@@ -60,11 +61,12 @@ def main() -> None:
             break
         if not utterance:
             break
-        response = run(utterance, ctx, prev)
+        response = run(utterance, ctx, prev, pending)
         print(response.answer)
         if response.verdict != "SAFE":
             print(f"[가드레일] {response.verdict_reason}")
         prev = response.params
+        pending = response.pending
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ def _to_response(state: dict) -> AgentResponse:
         rank_result=state.get("rank_result"),
         verdict=state.get("verdict", "SAFE"),
         verdict_reason=state.get("verdict_reason"),
+        pending=state.get("pending"),
     )
 
 
@@ -114,7 +115,7 @@ else:  # pragma: no cover
         from ..guardrails.input import check_request
         from ..guardrails.output import check_response
         from ..tools.evaluate import evaluate_candidates
-        from ..tools.geocode import geocode_place
+        from ..tools.geocode import geocode_place, resolve_choice
         from ..tools.rank import rank_candidates
         from ..tools.search import search_parking
         from ..format import format_answer
@@ -122,15 +123,38 @@ else:  # pragma: no cover
         # 1 extract
         params = extract_params(state["utterance"], state.get("prev_params"))
         state = {**state, "params": params}
-        # 2 validation
-        ok, msg = check_request(params)
-        state = {**state, "is_valid": ok, "validation_message": msg}
+        # 2 validation (pending 선택은 통과)
+        pending = state.get("pending")
+        if pending and resolve_choice(pending, state.get("utterance", "")) is not None:
+            state = {**state, "is_valid": True, "validation_message": None}
+        else:
+            ok, msg = check_request(params)
+            state = {**state, "is_valid": ok, "validation_message": msg}
         if not ok:
             return {**state, "answer": msg or "", "rank_result": None, "verdict": "SAFE"}
-        # 3 geocode
-        geo = geocode_place(params.place, state["ctx"])
-        dest = geo.candidates[0] if geo.is_confirmed else None
-        state = {**state, "geocode_result": geo, "destination": dest}
+        # 3 geocode (pending 선택이면 호출 없이 확정)
+        resolved = (
+            resolve_choice(pending, state.get("utterance", "")) if pending else None
+        )
+        if resolved is not None:
+            from ..types import GeocodeResult
+
+            geo = GeocodeResult(candidates=[resolved])
+            state = {
+                **state,
+                "geocode_result": geo,
+                "destination": resolved,
+                "pending": None,
+            }
+            dest = resolved
+        else:
+            geo = geocode_place(params.place, state["ctx"])
+            dest = geo.candidates[0] if geo.is_confirmed else None
+            state = {**state, "geocode_result": geo, "destination": dest}
+            state = {
+                **state,
+                "pending": None if geo.is_confirmed or not geo.candidates else geo.candidates,
+            }
         if not geo.candidates:
             return {**state, "answer": geo.message or "", "rank_result": None}
         if not geo.is_confirmed:
