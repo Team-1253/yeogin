@@ -62,6 +62,32 @@ def test_되묻기에_사용자언급_위치를_반환한다(ctx, monkeypatch):
     assert "'시청'" in response.answer
 
 
+def test_도입부_특수토큰을_제거한다(ctx, monkeypatch):
+    """모델이 뱉은 <|endoftext|> 같은 토큰은 응답에 남지 않습니다."""
+    import parking_agent.chains.formatting_chain as fc
+    from parking_agent.format import format_with_intro
+    from parking_agent.types import RankResult, RankingParams, Recommendation
+
+    class FakeChain:
+        def invoke(self, inputs):
+            return "찾아봤어요. <|endoftext|>"
+
+    monkeypatch.setattr(fc, "formatting_chain", FakeChain())
+    result = RankResult(
+        recommendations=[
+            Recommendation(
+                rank=1, name="A", distance_m=100, fee_text="1,000원",
+                availability_text="5면", hours_text="24시간",
+            )
+        ],
+        rejected=[],
+        sort_by="distance",
+    )
+    answer = format_with_intro(result, RankingParams(place="a"), "주차장 알려줘")
+    assert answer is not None and "<|" not in answer
+    assert "1. A" in answer
+
+
 def test_선택확정은_params_place를_갱신한다(ctx):
     """대기 후보 확정 시 하류 메시지가 후보명을 쓰도록 place를 갱신합니다."""
     from parking_agent.stages.geocode import _run_geocode

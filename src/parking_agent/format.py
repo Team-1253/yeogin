@@ -5,11 +5,16 @@
 
 from __future__ import annotations
 
+import re
+
 from .context import is_llm_disabled
 from .types import RankingParams, RankResult, RequestContext
 
 FIELD_LABELS = {"duration_minutes": "주차 시간은 1시간 기준"}
 REQUIRED_NOTICE = "현재 조회 데이터 기준"
+
+#: 모델이 뱉는 특수 토큰(<|endoftext|> 등)을 제거합니다.
+_JUNK_TOKEN = re.compile(r"<\|.*?\|>")
 
 
 def format_answer(
@@ -84,6 +89,7 @@ def format_with_intro(
             {"place": params.place, "utterance": utterance}
         )
         intro = intro.strip() if isinstance(intro, str) else ""
+        intro = _JUNK_TOKEN.sub("", intro).strip()
         if not intro:
             return None
         return intro + "\n" + _format_by_template(result, params)

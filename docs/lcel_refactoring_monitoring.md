@@ -247,3 +247,11 @@
 - 관찰 (미수정): "응/아니야/날씨 어때" + pending 조합은 되묻기 반복.
   대화 행위(긍정·부정·무관) 처리 미지원으로 설계 한계. route_stage 도입 시 해소可.
 - 검증: rule `51 passed, 4 skipped` + live 전체 **`55 passed`**.
+
+### 5.7 노트북 output 기록 + 도입부 특수토큰 유출 수정
+
+- 제출 노트북에 남길 output 4종(S1·되묻기확정·리랭킹·규칙모드)을 live 실행으로 기록.
+  대화형 셀은 미실행 유지.
+- 기록 과정에서 luna 도입부에 `<|endoftext|>` 유출 발견. 조치 —
+  `format_with_intro`에 `_JUNK_TOKEN(<\|.*?\|>)` 제거 추가 + 회귀 테스트.
+- 검증: rule `52 passed, 4 skipped` + live 전체 **`56 passed`**.
