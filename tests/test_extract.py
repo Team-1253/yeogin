@@ -6,6 +6,8 @@ LLM 슬롯은 mock으로 분리해 키 없이 검증합니다.
 
 from __future__ import annotations
 
+import pytest
+
 import parking_agent.extract as extract_mod
 from parking_agent.extract import (
     extract_budget,
@@ -324,8 +326,27 @@ def test_llm_모듈이_없어도_예외없이_폴백한다(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "langchain_openai", None)
     monkeypatch.setitem(sys.modules, "langchain_core.tools", None)
+    monkeypatch.setitem(sys.modules, "langchain_core.messages", None)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert extract_mod._extract_by_llm("강남역 근처 2시간 주차") is None
+
+
+def test_시스템지시와_발화를_역할분리한다():
+    """langchain이 있으면 System/Human 메시지로 나눕니다."""
+    pytest.importorskip("langchain_core.messages")
+    messages = extract_mod._build_messages("지시", "강남역 근처")
+    assert isinstance(messages, list)
+    assert [m.type for m in messages] == ["system", "human"]
+    assert messages[0].content == "지시"
+    assert "강남역 근처" in messages[1].content
+
+
+def test_langchain없이도_평탄문자열로_둔다(monkeypatch):
+    """langchain 부재 시 기존 평탄 문자열로 폴백합니다."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "langchain_core.messages", None)
+    assert extract_mod._build_messages("지시", "강남역 근처") == "지시\n발화: 강남역 근처"
 
 
 def test_llm_장소_접미사를_걷어낸다():
