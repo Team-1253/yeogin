@@ -26,9 +26,10 @@ except ImportError:  # pragma: no cover
         return fn
 
 
-PRICE_KEYWORDS = ("저렴", "싼", "싸게", "가격", "요금", "비싸")
+PRICE_KEYWORDS = ("저렴", "싼", "싸게", "가격", "요금", "비싸", "가성비", "최저가")
 
 MINUTES_PER_HOUR = 60
+MINUTES_PER_DAY = 24 * 60
 WON_PER_MANWON = 10_000
 WON_PER_CHEONWON = 1_000
 
@@ -43,6 +44,19 @@ KOREAN_HOURS = {
     "일곱": 7,
     "여덟": 8,
     "아홉": 9,
+}
+
+#: "오만원", "삼만원" 같은 표현을 지원합니다. 금액은 한자어 수사를 씁니다.
+KOREAN_MANWON = {
+    "일": 1,
+    "이": 2,
+    "삼": 3,
+    "사": 4,
+    "오": 5,
+    "육": 6,
+    "칠": 7,
+    "팔": 8,
+    "구": 9,
 }
 
 #: 장소 접미사입니다. P3의 LANDMARKS에 없는 이름도 geocode까지 전달되도록
@@ -70,12 +84,22 @@ def extract_place(utterance: str) -> str:
     Args:
         utterance: 사용자 발화 원문입니다.
     """
-    for name in sorted(LANDMARKS, key=len, reverse=True):
-        if name in utterance:
-            return name
+    if (name := _match_landmark(utterance)) is not None:
+        return name
     if m := re.search(r"([가-힣A-Za-z0-9]{2,10})\s*(?:근처|주변|인근|앞)", utterance):
         return m.group(1)
     return _suffix_place(utterance)
+
+
+def _match_landmark(utterance: str) -> str | None:
+    """랜드마크와 단어 경계에서 일치하는 이름을 돌려줍니다.
+
+    단순 부분일치는 "임시청사"를 "시청"으로 오인하므로 경계를 둡니다.
+    """
+    for name in sorted(LANDMARKS, key=len, reverse=True):
+        if re.search(rf"(?<![가-힣A-Za-z0-9]){re.escape(name)}(?![가-힣A-Za-z0-9])", utterance):
+            return name
+    return None
 
 
 def _suffix_place(utterance: str) -> str:
@@ -87,12 +111,15 @@ def _suffix_place(utterance: str) -> str:
 
 
 def _is_place_token(token: str) -> bool:
-    """접미사 매칭이 조사 오탐이 아닌지 봅니다."""
+    """접미사 매칭이 조사·부사 오탐이 아닌지 봅니다."""
     if token.endswith("으로"):
         return False
     for suffix in ("구", "동", "로", "길"):
         if token.endswith(suffix) and len(token) < len(suffix) + 2:
             return False
+    stem = re.sub(r"(구|동|로|길)$", "", token)
+    if stem in ("이하", "이내", "까지"):
+        return False
     return True
 
 
@@ -105,6 +132,16 @@ def extract_duration(utterance: str) -> int | None:
     Args:
         utterance: 사용자 발화 원문입니다.
     """
+    if m := re.search(r"(\d+)\s*박\s*(\d+)\s*일", utterance):
+        return int(m.group(2)) * MINUTES_PER_DAY
+    if m := re.search(r"(\d+)\s*일", utterance):
+        return int(m.group(1)) * MINUTES_PER_DAY
+    if re.search(r"종일|온종일|하루", utterance):
+        return MINUTES_PER_DAY
+    if m := re.search(r"(\d+)\s*시간\s*(\d+)\s*분", utterance):
+        return int(m.group(1)) * MINUTES_PER_HOUR + int(m.group(2))
+    if m := re.search(r"(한|두|세|네|다섯|여섯|일곱|여덟|아홉)\s*시간\s*(\d+)\s*분", utterance):
+        return KOREAN_HOURS[m.group(1)] * MINUTES_PER_HOUR + int(m.group(2))
     if m := re.search(r"(\d+)\s*시간\s*반", utterance):
         return int(m.group(1)) * MINUTES_PER_HOUR + MINUTES_PER_HOUR // 2
     if m := re.search(r"(한|두|세|네|다섯|여섯|일곱|여덟|아홉)\s*시간\s*반", utterance):
@@ -129,15 +166,19 @@ def extract_budget(utterance: str) -> int | None:
     Args:
         utterance: 사용자 발화 원문입니다.
     """
+    if m := re.search(r"(\d+)\s*만\s*(\d+)\s*천\s*원", utterance):
+        return int(m.group(1)) * WON_PER_MANWON + int(m.group(2)) * WON_PER_CHEONWON
+    if m := re.search(r"(일|이|삼|사|오|육|칠|팔|구)\s*만\s*원", utterance):
+        return KOREAN_MANWON[m.group(1)] * WON_PER_MANWON
     if m := re.search(r"(\d+)\s*만\s*원", utterance):
         return int(m.group(1)) * WON_PER_MANWON
     if m := re.search(r"(\d+)\s*천\s*원", utterance):
         return int(m.group(1)) * WON_PER_CHEONWON
     if m := re.search(r"(\d[\d,]*)\s*원", utterance):
         return int(m.group(1).replace(",", ""))
-    if "만원" in utterance:
+    if "만원" in utterance and not re.search(r"[수몇]\s*만원", utterance):
         return WON_PER_MANWON
-    if "천원" in utterance:
+    if "천원" in utterance and not re.search(r"[수몇]\s*천원", utterance):
         return WON_PER_CHEONWON
     return None
 
@@ -302,12 +343,18 @@ def _has_time_expression(utterance: str) -> bool:
         return True
     if re.search(r"(한|두|세|네|다섯|여섯|일곱|여덟|아홉)\s*시간", utterance):
         return True
-    return re.search(r"\d+\s*분", utterance) is not None
+    if re.search(r"\d+\s*분", utterance):
+        return True
+    if re.search(r"\d+\s*박", utterance):
+        return True
+    if re.search(r"\d+\s*일", utterance):
+        return True
+    return re.search(r"종일|온종일|하루", utterance) is not None
 
 
 def _has_money_expression(utterance: str) -> bool:
-    """금액 언급이 있는지 봅니다."""
-    return "원" in utterance or "예산" in utterance
+    """금액 언급이 있는지 봅니다. "공원"의 원 같은 오탐을 제외합니다."""
+    return re.search(r"만원|천원|\d[\d,]*\s*원|예산", utterance) is not None
 
 
 def _has_sort_intent(utterance: str) -> bool:
@@ -317,9 +364,8 @@ def _has_sort_intent(utterance: str) -> bool:
 
 def _has_place_signal(utterance: str) -> bool:
     """장소 언급이 있는지 봅니다. 없으면 place 슬롯을 생략합니다."""
-    for name in LANDMARKS:
-        if name in utterance:
-            return True
+    if _match_landmark(utterance) is not None:
+        return True
     if re.search(r"[가-힣A-Za-z0-9]{2,10}\s*(?:근처|주변|인근|앞)", utterance):
         return True
     return _suffix_place(utterance) != ""
@@ -351,9 +397,18 @@ LAST_SLOT_CALLS: list[str] = []
 
 
 def _clean_place(place: str) -> str:
-    """LLM이 붙인 잔여 접미사(근처·주차장 등)를 걷어냅니다."""
+    """LLM이 붙인 잔여 접미사를 걷어냅니다.
+
+    근처·주차장 같은 말과 조사(에·에서·으로 등)를 뗍니다.
+    로는 지명 일부(역삼로)일 수 있어 떼지 않습니다.
+    """
     cleaned = place.strip()
     cleaned = re.sub(r"\s*(?:근처|주변|인근|앞|주차장)+\s*$", "", cleaned)
+    cleaned = re.sub(
+        r"(?:에서|에게|한테|부터|까지|보다|처럼|으로|에|를|을|이|가|은|는|와|과|도|만)+$",
+        "",
+        cleaned,
+    )
     return cleaned.strip()
 
 
@@ -370,7 +425,9 @@ def extract_params(
 
     prev가 있으면 이번 발화에 명시된 필드만 덮어쓰고 나머지는 유지합니다.
     """
+    global LAST_SLOT_CALLS
     if is_llm_disabled():
+        LAST_SLOT_CALLS = []
         params = _extract_by_rule(utterance)
     else:
         params = _extract_by_llm(utterance) or _extract_by_rule(utterance)
