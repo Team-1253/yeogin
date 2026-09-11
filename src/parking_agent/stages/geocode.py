@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..tools.geocode import geocode_place, resolve_choice
-from ..types import GeocodeResult, ParkingState
+from ..types import GeocodeResult
 
 
 def _resolve_pending(state: dict) -> dict | None:

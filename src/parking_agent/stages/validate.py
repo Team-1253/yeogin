@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from ..guardrails.input import check_request
 from ..tools.geocode import resolve_choice
-from ..types import ParkingState
 
 
 def _run_validate(state: dict) -> dict:

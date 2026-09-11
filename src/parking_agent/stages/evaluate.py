@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ..tools.evaluate import evaluate_candidates
-from ..types import ParkingState
 
 try:
     from langchain_core.runnables import RunnableLambda

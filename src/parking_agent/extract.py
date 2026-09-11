@@ -154,7 +154,11 @@ def _strip_trailing_josa(token: str) -> str:
     for josa in _TRAILING_JOSA:
         if token.endswith(josa) and len(token) > len(josa) + 1:
             return token[: -len(josa)]
-    if token.endswith("로") and len(token) > 3 and not token[:-1].endswith(("로", "길", "동", "구")):
+    if (
+        token.endswith("로")
+        and len(token) > 3
+        and not token[:-1].endswith(("로", "길", "동", "구"))
+    ):
         return token[:-1]
     return token
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ..extract import extract_params
-from ..types import ParkingState
 
 try:
     from langchain_core.runnables import RunnableLambda

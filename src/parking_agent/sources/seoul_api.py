@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import os
 import pathlib
-import requests
-
 from collections.abc import Iterable
+
+import requests
 
 from ..types import ParkingLot
 
@@ -62,9 +62,8 @@ def load_from_api(districts: Iterable[str]) -> list[ParkingLot]:
     실패 시 예외를 던지지 말고 빈 리스트를 반환하십시오.
     """
     # 하나의 자치구
-    # 키 읽기 -> url 구성 -> 요청 -> 오류 확인 -> JSON 해석 -> GetParkingInfo.RESULT.CODE 확인 → row 목록 추출
-    
-    # 유효한, 음이 아니 정수만 반환
+    # 키 읽기 -> url 구성 -> 요청 -> 오류 확인 -> JSON 해석 -> CODE 확인 -> row 추출
+    # 유효한, 음이 아닌 정수만 반환
     def to_int(value: object) -> int | None:
         """유효한 음이 아닌 정수만 반환합니다."""
         try:

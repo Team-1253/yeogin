@@ -7,15 +7,14 @@
                             └─ valid → geocode → branch
                                               ├─ no candidates → answer
                                               ├─ ambiguous → answer
-                                              └─ confirmed → search → evaluate → rank → format → output_guard
+                                              └─ confirmed → search → evaluate
+                                                → rank → format → output_guard
 
-LCEL의 RunnableBranch / RunnablePassthrough를 사용해 Python if문이 아니라
+LCEL의 RunnableBranch를 사용해 Python if문이 아니라
 composition 자체가 실행 그래프가 되도록 한다.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from ..stages.evaluate import evaluate_stage
 from ..stages.extract import extract_stage
@@ -25,10 +24,10 @@ from ..stages.output_guard import output_guard_stage
 from ..stages.rank import rank_stage
 from ..stages.search import search_stage
 from ..stages.validate import validation_stage
-from ..types import AgentResponse, ParkingState
+from ..types import AgentResponse
 
 try:
-    from langchain_core.runnables import RunnableBranch, RunnableLambda, RunnablePassthrough
+    from langchain_core.runnables import RunnableBranch, RunnableLambda
 
     HAS_LCEL = True
 except ImportError:  # pragma: no cover
@@ -40,12 +39,29 @@ except ImportError:  # pragma: no cover
 
 def _validation_failed(state: dict) -> dict:
     msg = state.get("validation_message") or ""
-    return {**state, "answer": msg, "rank_result": None, "verdict": "SAFE", "verdict_reason": None}
+    return {
+        **state,
+        "answer": msg,
+        "rank_result": None,
+        "verdict": "SAFE",
+        "verdict_reason": None,
+    }
 
 
 def _geocode_no_result(state: dict) -> dict:
     msg = state["geocode_result"].message or ""
-    return {**state, "answer": msg, "rank_result": None, "verdict": "SAFE", "verdict_reason": None}
+    return {
+        **state,
+        "answer": msg,
+        "rank_result": None,
+        "verdict": "SAFE",
+        "verdict_reason": None,
+    }
+
+
+def _ambiguous_message(place: str, options: str) -> str:
+    """모호성 해소 되묻기 문구입니다."""
+    return f"'{place}' 근처로 보이는 곳이 여러 곳 있습니다. 어느 곳을 말씀하시나요? {options}"
 
 
 def _geocode_ambiguous(state: dict) -> dict:
@@ -54,7 +70,7 @@ def _geocode_ambiguous(state: dict) -> dict:
     place = state["params"].place
     return {
         **state,
-        "answer": f"'{place}' 근처로 보이는 곳이 여러 곳 있습니다. 어느 곳을 말씀하시나요? {options}",
+        "answer": _ambiguous_message(place, options),
         "rank_result": None,
         "verdict": "SAFE",
         "verdict_reason": None,
@@ -82,9 +98,15 @@ def _to_response(state: dict) -> AgentResponse:
 
 if HAS_LCEL:
     # Leaf runnables for branching (answer채움)
-    validation_failed_stage = RunnableLambda(_validation_failed).with_config(run_name="validation_failed")
-    geocode_no_result_stage = RunnableLambda(_geocode_no_result).with_config(run_name="geocode_no_result")
-    geocode_ambiguous_stage = RunnableLambda(_geocode_ambiguous).with_config(run_name="geocode_ambiguous")
+    validation_failed_stage = RunnableLambda(_validation_failed).with_config(
+        run_name="validation_failed"
+    )
+    geocode_no_result_stage = RunnableLambda(_geocode_no_result).with_config(
+        run_name="geocode_no_result"
+    )
+    geocode_ambiguous_stage = RunnableLambda(_geocode_ambiguous).with_config(
+        run_name="geocode_ambiguous"
+    )
 
     # Geocode 분기: empty → no_result, ambiguous → ambiguous, confirmed → search 이후
     geocode_branch = RunnableBranch(
@@ -108,24 +130,21 @@ if HAS_LCEL:
     ).with_config(run_name="parking_pipeline")
 
     # AgentResponse 매핑 체인
-    parking_pipeline_with_response = parking_pipeline | RunnableLambda(_to_response).with_config(run_name="to_response")
+    to_response_stage = RunnableLambda(_to_response).with_config(run_name="to_response")
+    parking_pipeline_with_response = parking_pipeline | to_response_stage
 
 else:  # pragma: no cover
     # langchain 없이도 동작하는 폴백 — 기존 pipeline.run과 동일한 순차 로직
-    def _fallback_pipeline(state: dict) -> dict:
-        state = _extract(state) if False else state  # placeholder to satisfy type checker
-        return state
-
     # 단순 함수형 폴백
     def _fallback_invoke(state: dict) -> dict:
         from ..extract import extract_params
+        from ..format import format_answer
         from ..guardrails.input import check_request
         from ..guardrails.output import check_response
         from ..tools.evaluate import evaluate_candidates
         from ..tools.geocode import geocode_place, resolve_choice
         from ..tools.rank import rank_candidates
         from ..tools.search import search_parking
-        from ..format import format_answer
 
         # 1 extract
         params = extract_params(state["utterance"], state.get("prev_params"))
@@ -172,7 +191,7 @@ else:  # pragma: no cover
             options = " / ".join(f"{i+1}. {p.name}" for i, p in enumerate(geo.candidates))
             return {
                 **state,
-                "answer": f"'{params.place}' 근처로 보이는 곳이 여러 곳 있습니다. 어느 곳을 말씀하시나요? {options}",
+                "answer": _ambiguous_message(params.place, options),
                 "rank_result": None,
             }
         # 4-6 search/evaluate/rank
@@ -188,16 +207,10 @@ else:  # pragma: no cover
         return {**state, "verdict": verdict, "verdict_reason": reason}
 
     class _FallbackPipeline:
+        """langchain 미설치 시 순차 실행 폴백입니다."""
+
         def invoke(self, state: dict) -> dict:
             return _fallback_invoke(state)
-
-        def __or__(self, other):  # type: ignore[no-untyped-def]
-            # 체인 연산을 위해 간단히 함수 합성 지원
-            class _Chained:
-                def invoke(self, s):  # type: ignore[no-untyped-def]
-                    return other.invoke(_fallback_invoke(s)) if hasattr(other, "invoke") else other(_fallback_invoke(s))
-
-            return _Chained()
 
     parking_pipeline = _FallbackPipeline()  # type: ignore[assignment]
     parking_pipeline_with_response = parking_pipeline  # type: ignore[assignment]

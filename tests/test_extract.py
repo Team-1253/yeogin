@@ -139,7 +139,10 @@ def test_sort_가격의도가_있을때만_price다():
     """S4: 비싸다는 가격 정렬 의도입니다."""
     assert extract_mod._run_slot_tool(extract_sort, "너무 비싸") == "price"
     assert extract_mod._run_slot_tool(extract_sort, "강남역 가성비 주차장") == "price"
-    assert extract_mod._run_slot_tool(extract_sort, "강남역 근처 2시간 주차, 만원 이하") == "distance"
+    assert (
+        extract_mod._run_slot_tool(extract_sort, "강남역 근처 2시간 주차, 만원 이하")
+        == "distance"
+    )
 
 
 # --------------------------------------------------------------------------

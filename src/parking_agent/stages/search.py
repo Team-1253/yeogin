@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ..tools.search import search_parking
-from ..types import ParkingState
 
 try:
     from langchain_core.runnables import RunnableLambda
