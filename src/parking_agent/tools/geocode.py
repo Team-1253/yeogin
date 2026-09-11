@@ -7,20 +7,12 @@
 from __future__ import annotations
 
 import math
+import os
+import requests
 
-from ..types import GeocodeResult, Place, RequestContext
-
-#: TODO(P3): 실지오코딩 연동 전까지 사용하는 랜드마크 테이블입니다.
-#: 30~50곳으로 확장하십시오. (이름, 주소, 위도, 경도, 자치구)
-LANDMARKS: dict[str, tuple[str, float, float, str]] = {
-    "강남역": ("서울 강남구 강남대로 396", 37.4979, 127.0276, "강남구"),
-    "홍대입구": ("서울 마포구 양화로 160", 37.5570, 126.9245, "마포구"),
-    "시청": ("서울 중구 세종대로 110", 37.5663, 126.9779, "중구"),
-    "역삼역": ("서울 강남구 테헤란로 156", 37.5006, 127.0364, "강남구"),
-    "코엑스": ("서울 강남구 영동대로 513", 37.5115, 127.0595, "강남구"),
-}
-
-SUPPORTED_HINT = " · ".join(LANDMARKS)
+KAKAO_API_KEY = os.environ["KAKAO_REST_API_KEY"]
+KAKAO_ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json"
+KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 
 
 def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
@@ -32,36 +24,31 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return int(2 * r * math.asin(math.sqrt(a)))
 
-
-def geocode_place(place: str, ctx: RequestContext) -> GeocodeResult:
-    """장소 이름을 좌표로 변환합니다. 목적지가 언급되면 가장 먼저 호출하세요.
-
-    동명 장소가 여러 곳이면 사용자의 현재 위치에서 가까운 순으로 정렬해
-    최대 3곳을 반환하므로, 2곳 이상이면 임의로 고르지 말고 되물으세요.
-    자치구가 직접 주어진 경우에는 호출하지 마세요.
+def geocode_place(lat: float, lng: float, query: str) -> dict | None:
     """
-    matched = [(k, v) for k, v in LANDMARKS.items() if k in place or place in k]
-    if not matched:
-        return GeocodeResult(
-            candidates=[],
-            message=f"지원하지 않는 장소입니다. 다음 중에서 선택해 주세요: {SUPPORTED_HINT}",
-        )
+        장소 이름을 좌표로 변환합니다. 목적지가 언급되면 가장 먼저 호출하세요.
+        동명 장소가 여러 곳이면 사용자의 현재 위치에서 가까운 순으로 정렬해 최대 5곳을 반환합니다.
+        2곳 이상이면 임의로 고르지 말고 되물으세요.
+    """
+    headers = {"Authorization": f"KakaoAK {KAKAO_API_KEY}"}
+    params = {"query": query}
+    resp = requests.get(KAKAO_KEYWORD_URL, headers=headers, params=params, timeout=5)
+    resp.raise_for_status()
+    documents = resp.json().get("documents")
+    if not documents:
+        return None
 
-    candidates = []
-    for name, (address, lat, lng, district) in matched:
-        distance = None
-        if ctx.user_lat is not None and ctx.user_lng is not None:
-            distance = haversine_m(ctx.user_lat, ctx.user_lng, lat, lng)
-        candidates.append(
-            Place(
-                name=name,
-                address=address,
-                lat=lat,
-                lng=lng,
-                district=district,
-                distance_from_user_m=distance,
-            )
-        )
+    candidates = [
+        {
+            "lat": float(doc["y"]),
+            "lng": float(doc["x"]),
+            "address": doc["address_name"],
+            "place_name": doc["place_name"],
+            "distance_m": haversine_m(lat, lng, float(doc["y"]), float(doc["x"])),
+        }
+        for doc in documents
+    ]
+    candidates.sort(key=lambda c: c["distance_m"])
+    return candidates[:5]
 
-    candidates.sort(key=lambda p: p.distance_from_user_m or 0)
-    return GeocodeResult(candidates=candidates[:3])
+print(geocode_place(37.394776, 127.11116, "엽기떡볶이"))
