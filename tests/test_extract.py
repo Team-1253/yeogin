@@ -130,3 +130,68 @@ def test_llm_장소_접미사를_걷어낸다():
     """LLM이 붙인 근처·주차장을 제거합니다."""
     assert extract_mod._clean_place("강남역 근처") == "강남역"
     assert extract_mod._clean_place("홍대입구 주차장") == "홍대입구"
+
+
+def _schema(**kwargs):
+    """검증 테스트용 스키마를 만듭니다."""
+    base = {
+        "reasoning": "테스트",
+        "place": "",
+        "duration_minutes": None,
+        "budget_won": None,
+        "sort_by": "distance",
+    }
+    base.update(kwargs)
+    return extract_mod._ExtractSchema(**base)
+
+
+def test_검증이_정상_추출을_통과시킨다():
+    """근거 있는 값에는 문제점이 없습니다."""
+    result = _schema(place="강남역", duration_minutes=120, budget_won=10000)
+    assert extract_mod._validate_extraction("강남역 근처 2시간 주차, 만원 이하", result) == []
+
+
+def test_검증이_없는_장소를_잡는다():
+    """발화에 없는 장소는 환각으로 판정합니다."""
+    issues = extract_mod._validate_extraction("주차장 찾아줘", _schema(place="강남역"))
+    assert any("장소" in issue for issue in issues)
+
+
+def test_검증이_지어낸_시간과_예산을_잡는다():
+    """언급 없이 채운 시간·예산을 판정합니다."""
+    time_issues = extract_mod._validate_extraction("강남역 근처", _schema(duration_minutes=60))
+    assert any("시간" in issue for issue in time_issues)
+    money_issues = extract_mod._validate_extraction("강남역 근처", _schema(budget_won=5000))
+    assert any("금액" in issue for issue in money_issues)
+
+
+def test_검증이_근거없는_price를_잡는다():
+    """정렬 의도 없이 price를 내놓으면 판정합니다."""
+    issues = extract_mod._validate_extraction("강남역 근처 2시간 주차", _schema(sort_by="price"))
+    assert any("price" in issue for issue in issues)
+
+
+def test_구조화실패시_재요청으로_교정한다(monkeypatch):
+    """규칙 폴백이 아니라 같은 LLM 경로에서 다시 받아옵니다."""
+    calls = []
+    bad = _schema(place="엉뚱한곳")
+    good = _schema(place="강남역", duration_minutes=120)
+
+    def fake_call(utterance, feedback=None):
+        calls.append(feedback)
+        return bad if feedback is None else good
+
+    monkeypatch.setattr(extract_mod, "_call_llm", fake_call)
+    params = extract_mod._extract_by_llm("강남역 근처 2시간 주차")
+    assert params is not None
+    assert params.place == "강남역"
+    assert params.duration_minutes == 120
+    assert len(calls) == 2
+    assert calls[0] is None
+    assert "장소" in (calls[1] or "")
+
+
+def test_api예외시에만_규칙으로_폴백한다(monkeypatch):
+    """_call_llm이 None이면 _extract_by_llm도 None을 둡니다."""
+    monkeypatch.setattr(extract_mod, "_call_llm", lambda utterance, feedback=None: None)
+    assert extract_mod._extract_by_llm("강남역 근처 2시간 주차") is None
