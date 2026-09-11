@@ -38,6 +38,7 @@ def rank_candidates(
 
 
 def _sort_key(sort_by: str):
+<<<<<<< HEAD
     """정렬 기준을 반환합니다.
 
     잔여 정보가 확인되는 후보를 먼저 배치한 뒤, 선택한 기본 기준의
@@ -54,6 +55,14 @@ def _sort_key(sort_by: str):
             primary_missing = False
             primary = e.distance_m
         return (availability_unknown, primary_missing, primary, e.distance_m)
+=======
+    """정렬 기준을 반환합니다. 잔여 정보 미제공 후보는 후순위로 밉니다."""
+
+    def key(e: Evaluation):
+        unknown = 1 if e.lot.available_slots is None else 0
+        primary = e.estimated_fee if sort_by == "price" else e.distance_m
+        return (unknown, primary if primary is not None else 10**9, e.distance_m)
+>>>>>>> db09a8964a79fedc8678b9d0a780a739143f3d0b
 
     return key
 
