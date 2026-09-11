@@ -86,7 +86,7 @@ flowchart TD
     O --> A(["AgentResponse"])
 ```
 
-분업 규칙과 데이터 계약은 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)를 먼저 읽으십시오.
+분업 규칙과 데이터 계약은 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)를 확인하세요.
 
 ## 현재 상태
 
