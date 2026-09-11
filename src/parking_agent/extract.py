@@ -21,10 +21,10 @@ from .tools.geocode import LANDMARKS
 from .types import RankingParams, SortBy
 
 try:
-    from langchain_core.tools import tool as _lc_tool
+    from langchain_core.tools import tool
 except ImportError:  # pragma: no cover
 
-    def _lc_tool(fn):
+    def tool(fn):
         """langchain 없이도 규칙 경로가 동작하도록 통과시킵니다."""
         return fn
 
@@ -77,6 +77,7 @@ LLM_TIMEOUT_SECONDS = 10
 # --------------------------------------------------------------------------
 
 
+@tool
 def extract_place(utterance: str) -> str:
     """장소 이름을 추출합니다. 목적지 지명이 필요할 때 호출하십시오.
 
@@ -125,6 +126,7 @@ def _is_place_token(token: str) -> bool:
     return True
 
 
+@tool
 def extract_duration(utterance: str) -> int | None:
     """주차 시간을 분 단위로 추출합니다. 시간 표현 해석이 필요할 때 호출하십시오.
 
@@ -159,6 +161,7 @@ def extract_duration(utterance: str) -> int | None:
     return None
 
 
+@tool
 def extract_budget(utterance: str) -> int | None:
     """예산 상한을 원 단위로 추출합니다. 금액 표현 해석이 필요할 때 호출하십시오.
 
@@ -185,6 +188,7 @@ def extract_budget(utterance: str) -> int | None:
     return None
 
 
+@tool
 def extract_sort(utterance: str) -> SortBy:
     """정렬 기준을 추출합니다. 가격 정렬 의도 확인이 필요할 때 호출하십시오.
 
@@ -198,17 +202,12 @@ def extract_sort(utterance: str) -> SortBy:
 
 
 # --------------------------------------------------------------------------
-# 슬롯 도구 등록: plain 함수를 tool 객체로 노출하고 선택 에이전트에 바인딩합니다.
-# 파이프라인 내부는 plain 함수를 쓰고, 모델은 이 도구들을 선택만 합니다.
+# 슬롯 도구 등록: @tool 데코레이터로 plain 함수를 tool 객체로 노출합니다.
+# 파이프라인 내부는 같은 함수를 직접 호출하고, 모델은 이 도구들을 선택만 합니다.
 # --------------------------------------------------------------------------
 
-extract_place_tool = _lc_tool(extract_place)
-extract_duration_tool = _lc_tool(extract_duration)
-extract_budget_tool = _lc_tool(extract_budget)
-extract_sort_tool = _lc_tool(extract_sort)
-
 #: 선택 에이전트에 등록하는 슬롯 도구 목록입니다.
-SLOT_TOOLS = (extract_place_tool, extract_duration_tool, extract_budget_tool, extract_sort_tool)
+SLOT_TOOLS = (extract_place, extract_duration, extract_budget, extract_sort)
 
 #: 슬롯의 고정 처리 순서입니다. 선택 결과를 이 순서로 정렬합니다.
 _SLOT_ORDER = ("place", "duration", "budget", "sort")
@@ -226,6 +225,18 @@ _TOOL_TO_SLOT = {
     "extract_budget": "budget",
     "extract_sort": "sort",
 }
+
+
+def _run_slot_tool(slot_tool, utterance: str):
+    """슬롯 도구를 실행합니다.
+
+    @tool 데코레이터가 있으면 StructuredTool이므로 invoke 딕셔너리로 실행하고,
+    langchain 없는 폴백에서는 plain 함수로 직접 호출합니다.
+    """
+    invoke = getattr(slot_tool, "invoke", None)
+    if invoke is not None:
+        return invoke({"utterance": utterance})
+    return slot_tool(utterance)
 
 _SELECTION_POLICY = (
     "주차장 요청 발화에서 필요한 조사 도구를 선택합니다. "
@@ -499,7 +510,7 @@ def _extract_by_llm(utterance: str) -> RankingParams | None:
 
     slots: dict[str, BaseModel] = {}
     for slot in selected:
-        raw = _SLOT_FUNCTIONS[slot](utterance)
+        raw = _run_slot_tool(_SLOT_FUNCTIONS[slot], utterance)
         result = _make_slot_result(slot, raw)
         if _validate_slot(slot, utterance, result):
             # 규칙 산출이 발화 신호와 어긋나면 턴 전체를 폴백합니다.
@@ -527,10 +538,10 @@ def _extract_by_llm(utterance: str) -> RankingParams | None:
 def _extract_by_rule(utterance: str) -> RankingParams:
     """규칙 도구 4종으로 추출합니다. 예외 상황의 폴백 경로입니다."""
     return RankingParams(
-        place=extract_place(utterance),
-        duration_minutes=extract_duration(utterance),
-        budget_won=extract_budget(utterance),
-        sort_by=extract_sort(utterance),
+        place=_run_slot_tool(extract_place, utterance),
+        duration_minutes=_run_slot_tool(extract_duration, utterance),
+        budget_won=_run_slot_tool(extract_budget, utterance),
+        sort_by=_run_slot_tool(extract_sort, utterance),
     )
 
 

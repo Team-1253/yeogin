@@ -26,24 +26,24 @@ from parking_agent.types import RankingParams
 
 def test_place_랜드마크를_찾는다():
     """등록된 지명을 원형으로 돌려줍니다."""
-    assert extract_place("강남역 근처 2시간 주차") == "강남역"
-    assert extract_place("코엑스 가고 싶어") == "코엑스"
+    assert extract_mod._run_slot_tool(extract_place, "강남역 근처 2시간 주차") == "강남역"
+    assert extract_mod._run_slot_tool(extract_place, "코엑스 가고 싶어") == "코엑스"
 
 
 def test_place_미지원_장소를_geocode까지_전달한다():
     """S3: 모르는 이름도 비우지 않고 geocode 폴백에 넘깁니다."""
-    assert extract_place("은평구 주차장") == "은평구"
+    assert extract_mod._run_slot_tool(extract_place, "은평구 주차장") == "은평구"
 
 
 def test_place_없으면_빈문자열을_둔다():
     """S2: 장소를 추정하지 않습니다."""
-    assert extract_place("주차장 찾아줘") == ""
+    assert extract_mod._run_slot_tool(extract_place, "주차장 찾아줘") == ""
 
 
 def test_place_조사를_장소로_오인하지_않는다():
     """ "2시간으로"의 로를 접미사로 보지 않습니다."""
-    assert extract_place("2시간으로 바꿔줘") == ""
-    assert extract_place("역삼로 주차장") == "역삼로"
+    assert extract_mod._run_slot_tool(extract_place, "2시간으로 바꿔줘") == ""
+    assert extract_mod._run_slot_tool(extract_place, "역삼로 주차장") == "역삼로"
     prev = RankingParams(place="강남역", duration_minutes=60)
     merged = extract_params("2시간으로 바꿔줘", prev)
     assert merged.place == "강남역"
@@ -52,16 +52,16 @@ def test_place_조사를_장소로_오인하지_않는다():
 
 def test_place_부분일치를_단어로_끊는다():
     """ "임시청사"를 "시청"으로 보지 않습니다."""
-    assert extract_place("임시청사 근처 주차장") == "임시청사"
-    assert extract_place("시청역 근처 주차장") == "시청역"
-    assert extract_place("시청 주차장") == "시청"
-    assert extract_place("강남역 근처") == "강남역"
+    assert extract_mod._run_slot_tool(extract_place, "임시청사 근처 주차장") == "임시청사"
+    assert extract_mod._run_slot_tool(extract_place, "시청역 근처 주차장") == "시청역"
+    assert extract_mod._run_slot_tool(extract_place, "시청 주차장") == "시청"
+    assert extract_mod._run_slot_tool(extract_place, "강남역 근처") == "강남역"
 
 
 def test_place_범위부사를_장소로_보지_않는다():
     """ "만원 이하로"의 이하로를 장소로 보지 않습니다."""
-    assert extract_place("만원 이하로 찾아줘") == ""
-    assert extract_place("3만원 이내로 역삼역 근처") == "역삼역"
+    assert extract_mod._run_slot_tool(extract_place, "만원 이하로 찾아줘") == ""
+    assert extract_mod._run_slot_tool(extract_place, "3만원 이내로 역삼역 근처") == "역삼역"
 
 
 # --------------------------------------------------------------------------
@@ -71,32 +71,32 @@ def test_place_범위부사를_장소로_보지_않는다():
 
 def test_duration_시간을_분으로_바꾼다():
     """2시간은 120분입니다."""
-    assert extract_duration("강남역 근처 2시간 주차") == 120
+    assert extract_mod._run_slot_tool(extract_duration, "강남역 근처 2시간 주차") == 120
 
 
 def test_duration_반시간과_시간반을_다룬다():
     """반시간은 30분, 2시간반은 150분입니다."""
-    assert extract_duration("시청 근처 반시간 주차") == 30
-    assert extract_duration("시청 근처 2시간반 주차") == 150
-    assert extract_duration("시청 근처 두시간 주차") == 120
+    assert extract_mod._run_slot_tool(extract_duration, "시청 근처 반시간 주차") == 30
+    assert extract_mod._run_slot_tool(extract_duration, "시청 근처 2시간반 주차") == 150
+    assert extract_mod._run_slot_tool(extract_duration, "시청 근처 두시간 주차") == 120
 
 
 def test_duration_없으면_None을_둔다():
     """언급이 없으면 추정하지 않습니다."""
-    assert extract_duration("강남역 근처 주차장") is None
+    assert extract_mod._run_slot_tool(extract_duration, "강남역 근처 주차장") is None
 
 
 def test_duration_복합시간을_합산한다():
     """1시간 30분은 90분입니다."""
-    assert extract_duration("강남역 근처 1시간 30분 주차") == 90
-    assert extract_duration("강남역 근처 두시간 30분 주차") == 150
+    assert extract_mod._run_slot_tool(extract_duration, "강남역 근처 1시간 30분 주차") == 90
+    assert extract_mod._run_slot_tool(extract_duration, "강남역 근처 두시간 30분 주차") == 150
 
 
 def test_duration_일단위를_분으로_바꾼다():
     """하루·1박2일은 일 단위로 계산합니다."""
-    assert extract_duration("강남역 근처 하루 주차") == 1440
-    assert extract_duration("강남역 근처 종일 주차") == 1440
-    assert extract_duration("강남역 근처 1박2일 주차") == 2880
+    assert extract_mod._run_slot_tool(extract_duration, "강남역 근처 하루 주차") == 1440
+    assert extract_mod._run_slot_tool(extract_duration, "강남역 근처 종일 주차") == 1440
+    assert extract_mod._run_slot_tool(extract_duration, "강남역 근처 1박2일 주차") == 2880
 
 
 # --------------------------------------------------------------------------
@@ -106,20 +106,20 @@ def test_duration_일단위를_분으로_바꾼다():
 
 def test_budget_만원을_원으로_바꾼다():
     """S1: 단독 만원은 10000원입니다."""
-    assert extract_budget("강남역 근처 2시간 주차, 만원 이하") == 10000
-    assert extract_budget("2만원까지 찾아줘") == 20000
+    assert extract_mod._run_slot_tool(extract_budget, "강남역 근처 2시간 주차, 만원 이하") == 10000
+    assert extract_mod._run_slot_tool(extract_budget, "2만원까지 찾아줘") == 20000
 
 
 def test_budget_없으면_None을_둔다():
     """언급이 없으면 추정하지 않습니다."""
-    assert extract_budget("강남역 근처 2시간 주차") is None
+    assert extract_mod._run_slot_tool(extract_budget, "강남역 근처 2시간 주차") is None
 
 
 def test_budget_혼합단위와_한글숫자를_다룬다():
     """1만 5천원은 15000원, 오만원은 50000원입니다."""
-    assert extract_budget("1만 5천원 이하") == 15000
-    assert extract_budget("오만원 이하") == 50000
-    assert extract_budget("수만원 이하") is None
+    assert extract_mod._run_slot_tool(extract_budget, "1만 5천원 이하") == 15000
+    assert extract_mod._run_slot_tool(extract_budget, "오만원 이하") == 50000
+    assert extract_mod._run_slot_tool(extract_budget, "수만원 이하") is None
 
 
 # --------------------------------------------------------------------------
@@ -129,9 +129,9 @@ def test_budget_혼합단위와_한글숫자를_다룬다():
 
 def test_sort_가격의도가_있을때만_price다():
     """S4: 비싸다는 가격 정렬 의도입니다."""
-    assert extract_sort("너무 비싸") == "price"
-    assert extract_sort("강남역 가성비 주차장") == "price"
-    assert extract_sort("강남역 근처 2시간 주차, 만원 이하") == "distance"
+    assert extract_mod._run_slot_tool(extract_sort, "너무 비싸") == "price"
+    assert extract_mod._run_slot_tool(extract_sort, "강남역 가성비 주차장") == "price"
+    assert extract_mod._run_slot_tool(extract_sort, "강남역 근처 2시간 주차, 만원 이하") == "distance"
 
 
 # --------------------------------------------------------------------------
@@ -140,17 +140,17 @@ def test_sort_가격의도가_있을때만_price다():
 
 
 def test_tool_별칭이_등록된다():
-    """슬롯별 tool 객체가 이름과 함께 존재합니다."""
-    for alias, keyword in (
-        ("extract_place_tool", "place"),
-        ("extract_duration_tool", "duration"),
-        ("extract_budget_tool", "budget"),
-        ("extract_sort_tool", "sort"),
+    """슬롯별 tool 객체가 데코레이터 스타일로 존재합니다."""
+    for name, keyword in (
+        ("extract_place", "place"),
+        ("extract_duration", "duration"),
+        ("extract_budget", "budget"),
+        ("extract_sort", "sort"),
     ):
-        assert hasattr(extract_mod, alias), alias
-        tool = getattr(extract_mod, alias)
-        name = getattr(tool, "name", getattr(tool, "__name__", ""))
-        assert keyword in name, alias
+        assert hasattr(extract_mod, name), name
+        tool = getattr(extract_mod, name)
+        assert getattr(tool, "name", "") == name, name
+        assert keyword in tool.name, name
 
 
 # --------------------------------------------------------------------------
