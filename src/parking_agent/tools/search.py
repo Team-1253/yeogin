@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from ..sources.seoul_api import is_seoul_source, load_from_api, load_from_seed
+from ..sources.seoul_api import load_from_api
 from ..types import Place, RequestContext, SearchResult
 from .districts import get_adjacent
 
@@ -25,8 +25,7 @@ def search_parking(destination: Place, ctx: RequestContext) -> SearchResult:
             message="서울시 자치구가 아니어서 조회할 수 없습니다.",
         )
 
-    lots = load_from_api(districts) if is_seoul_source() else load_from_seed()
-    lots = [lot for lot in lots if lot.district in districts]
+    lots = load_from_api(districts)
 
     if not lots:
         return SearchResult(
