@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import re
 
+from pydantic import BaseModel, Field
+
 from .context import is_llm_disabled
 from .tools.geocode import LANDMARKS
 from .types import RankingParams, SortBy
@@ -39,6 +41,35 @@ PLACE_SUFFIXES = r"역|구청|구|동|로|길|점|몰|공원|타워|시장|백�
 LLM_MODEL_DEFAULT = "gpt-5.6-luna"
 LLM_TIMEOUT_SECONDS = 10
 
+#: 구조화 실패 시 같은 경로에서 재요청하는 횟수입니다. 규칙 폴백이 아닙니다.
+LLM_MAX_ATTEMPTS = 2
+
+LLM_SYSTEM_PROMPT = (
+    "주차장 요청 발화에서 검색 조건을 추출합니다. "
+    "다음 순서로 생각하고 reasoning에 그 과정을 적으십시오.\n"
+    "1. 목적지 지명을 찾습니다. 근처·주변·주차장 같은 말은 뗍니다. "
+    "없으면 빈 문자열입니다.\n"
+    "2. 주차 시간을 찾습니다. 시간은 60을 곱해 분으로 둡니다. "
+    "언급이 없으면 None이며 값을 지어내지 않습니다.\n"
+    "3. 예산 상한을 찾습니다. 만원은 10000을 곱합니다. "
+    "언급이 없으면 None이며 값을 지어내지 않습니다.\n"
+    "4. 정렬을 정합니다. 싼 곳·저렴한 순 같은 정렬 의도가 있을 때만 price이고, "
+    "예산 언급만으로는 distance입니다."
+)
+
+
+class _ExtractSchema(BaseModel):
+    """LLM 구조화 출력 스키마입니다.
+
+    reasoning을 먼저 채우게 해 단계별로 생각한 뒤 값을 정합니다.
+    """
+
+    reasoning: str = Field(default="", description="추출 과정을 단계별로 적은 메모입니다.")
+    place: str = Field(default="", description="핵심 지명만 둡니다.")
+    duration_minutes: int | None = Field(default=None, description="주차 시간(분)입니다.")
+    budget_won: int | None = Field(default=None, description="예산 상한(원)입니다.")
+    sort_by: str = Field(default="distance", description="정렬 의도가 있을 때만 price입니다.")
+
 
 def extract_params(
     utterance: str,
@@ -59,54 +90,98 @@ def extract_params(
 
 
 def _extract_by_llm(utterance: str) -> RankingParams | None:
-    """LLM 구조화 출력으로 추출합니다. 실패 시 None을 반환합니다.
+    """LLM 구조화 출력으로 추출합니다. LLM 우선 경로입니다.
 
-    langchain이 없거나 키가 없거나 호출이 실패하면 None을 반환해
-    규칙 기반 추출로 폴백합니다. 예외를 던지지 않습니다.
+    API 호출 같은 예외 상황에서만 None을 반환해 규칙으로 폴백합니다.
+    구조화 문제는 검증을 거쳐 같은 경로에서 재요청으로 교정합니다.
+    예외를 던지지 않습니다.
+    """
+    result = _call_llm(utterance)
+    if result is None:
+        return None
+
+    if _validate_extraction(utterance, result) and LLM_MAX_ATTEMPTS > 1:
+        retry = _call_llm(utterance, feedback="; ".join(_validate_extraction(utterance, result)))
+        if retry is not None:
+            result = retry
+
+    return RankingParams(
+        place=_clean_place(result.place),
+        duration_minutes=result.duration_minutes,
+        budget_won=result.budget_won,
+        sort_by=result.sort_by if result.sort_by == "price" else "distance",
+    )
+
+
+def _call_llm(utterance: str, feedback: str | None = None) -> _ExtractSchema | None:
+    """LLM에 구조화 추출을 1회 요청합니다.
+
+    예외 상황(미설치·키 없음·호출 실패)이면 None을 반환합니다.
+    구조화 실패는 None이 아니라 스키마 그대로 돌려주어 검증 단계가 다룹니다.
     """
     try:
         from langchain_openai import ChatOpenAI
-        from pydantic import BaseModel, Field
-
-        class _ExtractSchema(BaseModel):
-            """발화에서 뽑는 검색 조건입니다."""
-
-            place: str = Field(
-                default="",
-                description="핵심 지명만 둡니다. 근처·주변·주차장 같은 접미사는 뗍니다.",
-            )
-            duration_minutes: int | None = Field(
-                default=None, description="주차 시간(분)입니다. 시간은 60을 곱합니다."
-            )
-            budget_won: int | None = Field(
-                default=None, description="예산 상한(원)입니다. 만원은 10000을 곱합니다."
-            )
-            sort_by: str = Field(
-                default="distance",
-                description="싼 곳·저렴한 순 같은 정렬 의도가 있을 때만 price입니다. "
-                "예산(만원 이하 등) 언급만으로는 distance를 둡니다.",
-            )
 
         model = ChatOpenAI(
             model=os.getenv("MODEL_NAME", LLM_MODEL_DEFAULT),
             temperature=0,
             timeout=LLM_TIMEOUT_SECONDS,
         )
-        result = model.with_structured_output(_ExtractSchema).invoke(
-            "다음 주차장 요청 발화에서 검색 조건을 추출하십시오. "
-            "장소는 핵심 지명만 두고 근처·주차장 같은 말을 떼십시오. "
-            "추측하지 마시고 모르는 값은 None으로 두십시오. "
-            "예산 언급은 budget_won으로만 처리하고 sort_by를 price로 바꾸지 마십시오.\n"
-            f"발화: {utterance}"
-        )
-        return RankingParams(
-            place=_clean_place(result.place),
-            duration_minutes=result.duration_minutes,
-            budget_won=result.budget_won,
-            sort_by=result.sort_by if result.sort_by == "price" else "distance",
-        )
+        prompt = LLM_SYSTEM_PROMPT
+        if feedback:
+            prompt += f"\n이전 추출 문제점: {feedback}\n위 문제를 고쳐 다시 추출하십시오."
+        prompt += f"\n발화: {utterance}"
+        return model.with_structured_output(_ExtractSchema).invoke(prompt)
     except Exception:
         return None
+
+
+def _validate_extraction(utterance: str, result: _ExtractSchema) -> list[str]:
+    """구조화 출력이 발화에 근거하는지 검증합니다. 문제점 목록을 반환합니다.
+
+    비어 있으면 정상입니다. 값을 고치지 않고 판정만 합니다.
+    """
+    issues: list[str] = []
+    squashed = utterance.replace(" ", "")
+    place = _clean_place(result.place)
+    if place and place.replace(" ", "") not in squashed:
+        issues.append(f"장소 '{place}'가 발화에 없습니다")
+    if result.duration_minutes is not None:
+        if result.duration_minutes <= 0:
+            issues.append("주차 시간이 0 이하입니다")
+        elif not _has_time_expression(utterance):
+            issues.append("시간 언급이 없는데 주차 시간이 있습니다")
+    if result.budget_won is not None:
+        if result.budget_won < 0:
+            issues.append("예산이 음수입니다")
+        elif not _has_money_expression(utterance):
+            issues.append("금액 언급이 없는데 예산이 있습니다")
+    if result.sort_by not in ("price", "distance"):
+        issues.append("정렬 값이 price/distance가 아닙니다")
+    elif result.sort_by == "price" and not _has_sort_intent(utterance):
+        issues.append("정렬 의도 언급이 없는데 price입니다")
+    return issues
+
+
+def _has_time_expression(utterance: str) -> bool:
+    """시간 언급이 있는지 봅니다."""
+    if "반시간" in utterance:
+        return True
+    if re.search(r"\d+\s*시간", utterance):
+        return True
+    if re.search(r"(한|두|세|네|다섯|여섯|일곱|여덟|아홉)\s*시간", utterance):
+        return True
+    return re.search(r"\d+\s*분", utterance) is not None
+
+
+def _has_money_expression(utterance: str) -> bool:
+    """금액 언급이 있는지 봅니다."""
+    return "원" in utterance or "예산" in utterance
+
+
+def _has_sort_intent(utterance: str) -> bool:
+    """정렬 의도 언급이 있는지 봅니다."""
+    return any(k in utterance for k in PRICE_KEYWORDS)
 
 
 def _clean_place(place: str) -> str:
