@@ -1,7 +1,8 @@
 """실제 모델 호출 테스트입니다. [담당: P2]
 
 기본 실행(`pytest tests/`)에서는 건너뜁니다. 과금·지연·응답 변동이 있어
-CI나 평소 검증에 넣지 않습니다.
+CI나 평소 검증에 넣지 않습니다. 슬롯 분리 후 호출 수가 늘었습니다.
+(`_extract_by_llm` 1회 = 슬롯 4회, 재시도 시 더 늘어납니다.)
 
 실행법 (PowerShell, .venv 기준):
   1. `.env`를 세션에 올립니다 (프로젝트 README의 키 검증 절차 참고).
@@ -26,28 +27,43 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_live_S1을_파싱한다():
-    """S1 발화를 실제 모델로 파싱합니다. (API 1회 호출)"""
+    """S1 발화를 실제 모델로 파싱합니다. (API 3회 호출: sort 생략)"""
+    import parking_agent.extract as extract_mod
+
     params = _extract_by_llm("강남역 근처 2시간 주차, 만원 이하")
     assert params is not None
     assert params.place == "강남역"
     assert params.duration_minutes == 120
     assert params.budget_won == 10000
     assert params.sort_by == "distance"
+    assert extract_mod.LAST_SLOT_CALLS == ["place", "duration", "budget"]
 
 
 def test_live_가격의도를_구분한다():
-    """정렬 의도는 price, 예산 언급은 distance로 구분합니다. (API 2회 호출)"""
+    """정렬 의도는 price, 예산 언급은 distance로 구분합니다. (API 9회 호출)"""
     cheap = _extract_by_llm("역삼역 근처 저렴한 순으로 2시간")
     plain = _extract_by_llm("코엑스 근처 1시간 주차")
-    assert cheap is not None and plain is not None
+    complaint = _extract_by_llm("너무 비싸")
+    assert cheap is not None and plain is not None and complaint is not None
     assert cheap.sort_by == "price"
     assert plain.sort_by == "distance"
+    assert complaint.sort_by == "price"
 
 
 def test_live_extract_params가_llm을_쓴다(monkeypatch):
-    """NO_LLM을 끄면 파이프라인 진입점도 실제 모델을 씁니다. (API 1회 호출)"""
+    """NO_LLM을 끄면 파이프라인 진입점도 실제 모델을 씁니다. (API 4회 호출)"""
     monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
     params = extract_params("역삼역 근처 저렴한 순으로 2시간")
     assert params.place == "역삼역"
     assert params.duration_minutes == 120
     assert params.sort_by == "price"
+
+
+def test_live_빈슬롯은_None이다(monkeypatch):
+    """장소만 있는 발화는 나머지 슬롯이 비어 있습니다. (API 4회 호출)"""
+    monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
+    params = extract_params("코엑스 주차장")
+    assert params.place == "코엑스"
+    assert params.duration_minutes is None
+    assert params.budget_won is None
+    assert params.sort_by == "distance"
