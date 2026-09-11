@@ -64,6 +64,14 @@ def test_place_범위부사를_장소로_보지_않는다():
     assert extract_mod._run_slot_tool(extract_place, "3만원 이내로 역삼역 근처") == "역삼역"
 
 
+def test_place_장소뒤_조사를_벗긴다():
+    """ "홍대입구역으로"에서 조사를 벗기고 장소를 돌려줍니다."""
+    assert extract_mod._run_slot_tool(extract_place, "홍대입구역으로 바꿔줘") == "홍대입구역"
+    assert extract_mod._run_slot_tool(extract_place, "강남역으로 알려줘") == "강남역"
+    assert extract_mod._run_slot_tool(extract_place, "2시간으로 바꿔줘") == ""
+    assert extract_mod._run_slot_tool(extract_place, "역삼로 근처 주차장") == "역삼로"
+
+
 # --------------------------------------------------------------------------
 # 시간 도구
 # --------------------------------------------------------------------------

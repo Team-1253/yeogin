@@ -106,11 +106,57 @@ def _match_landmark(utterance: str) -> str | None:
 
 
 def _suffix_place(utterance: str) -> str:
-    """접미사 토큰을 찾습니다. 조사 오탐("2시간으로"의 로 등)은 제외합니다."""
+    """접미사 토큰을 찾습니다. 조사 오탐("2시간으로"의 로 등)은 제외합니다.
+
+    "홍대입구역으로"처럼 장소+조사가 통째로 매칭되면 조사를 벗기고
+    나머지가 장소 접미사로 끝나는지 다시 봅니다.
+    """
     for m in re.finditer(rf"([가-힣A-Za-z0-9]+(?:{PLACE_SUFFIXES}))", utterance):
-        if _is_place_token(m.group(1)):
-            return m.group(1)
+        token = m.group(1)
+        if _is_place_token(token):
+            return token
+        stripped = _strip_trailing_josa(token)
+        if (
+            stripped != token
+            and re.search(rf"(?:{PLACE_SUFFIXES})$", stripped)
+            and _is_place_token(stripped)
+        ):
+            return stripped
     return ""
+
+
+#: 토큰 끝에서 벗기는 조사입니다. 로는 지명 일부(역삼로)일 수 있어 별도 처리합니다.
+_TRAILING_JOSA = (
+    "으로",
+    "에서",
+    "에게",
+    "한테",
+    "부터",
+    "까지",
+    "보다",
+    "처럼",
+    "를",
+    "을",
+    "이",
+    "가",
+    "은",
+    "는",
+    "와",
+    "과",
+    "도",
+    "만",
+    "에",
+)
+
+
+def _strip_trailing_josa(token: str) -> str:
+    """토큰 끝의 조사를 벗깁니다. 벗길 게 없으면 그대로 둡니다."""
+    for josa in _TRAILING_JOSA:
+        if token.endswith(josa) and len(token) > len(josa) + 1:
+            return token[: -len(josa)]
+    if token.endswith("로") and len(token) > 3 and not token[:-1].endswith(("로", "길", "동", "구")):
+        return token[:-1]
+    return token
 
 
 def _is_place_token(token: str) -> bool:
