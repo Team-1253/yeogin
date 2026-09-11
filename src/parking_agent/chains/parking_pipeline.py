@@ -51,7 +51,14 @@ def _geocode_no_result(state: dict) -> dict:
 def _geocode_ambiguous(state: dict) -> dict:
     candidates = state["geocode_result"].candidates
     options = " / ".join(f"{i+1}. {p.name}" for i, p in enumerate(candidates))
-    return {**state, "answer": f"어느 곳을 말씀하시나요? {options}", "rank_result": None, "verdict": "SAFE", "verdict_reason": None}
+    place = state["params"].place
+    return {
+        **state,
+        "answer": f"'{place}' 근처로 보이는 곳이 여러 곳 있습니다. 어느 곳을 말씀하시나요? {options}",
+        "rank_result": None,
+        "verdict": "SAFE",
+        "verdict_reason": None,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -137,11 +144,15 @@ else:  # pragma: no cover
             resolve_choice(pending, state.get("utterance", "")) if pending else None
         )
         if resolved is not None:
+            from dataclasses import replace
+
             from ..types import GeocodeResult
 
             geo = GeocodeResult(candidates=[resolved])
+            params = replace(params, place=resolved.name)
             state = {
                 **state,
+                "params": params,
                 "geocode_result": geo,
                 "destination": resolved,
                 "pending": None,
@@ -159,7 +170,11 @@ else:  # pragma: no cover
             return {**state, "answer": geo.message or "", "rank_result": None}
         if not geo.is_confirmed:
             options = " / ".join(f"{i+1}. {p.name}" for i, p in enumerate(geo.candidates))
-            return {**state, "answer": f"어느 곳을 말씀하시나요? {options}", "rank_result": None}
+            return {
+                **state,
+                "answer": f"'{params.place}' 근처로 보이는 곳이 여러 곳 있습니다. 어느 곳을 말씀하시나요? {options}",
+                "rank_result": None,
+            }
         # 4-6 search/evaluate/rank
         sr = search_parking(dest, state["ctx"])
         er = evaluate_candidates(sr, dest, params, state["ctx"])

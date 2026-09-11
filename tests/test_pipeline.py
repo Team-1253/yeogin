@@ -53,3 +53,31 @@ def test_범위밖_선택은_다시_묻는다(ctx, monkeypatch):
     second = run("9", ctx, first.params, first.pending)
     assert second.answer == first.answer
     assert second.pending is not None
+
+
+def test_되묻기에_사용자언급_위치를_반환한다(ctx, monkeypatch):
+    """모호성 해소 질문에 사용자가 말한 장소를 함께 돌려줍니다."""
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    response = run("시청 근처 주차장", ctx)
+    assert "'시청'" in response.answer
+
+
+def test_선택확정은_params_place를_갱신한다(ctx):
+    """대기 후보 확정 시 하류 메시지가 후보명을 쓰도록 place를 갱신합니다."""
+    from parking_agent.stages.geocode import _run_geocode
+    from parking_agent.types import Place, RankingParams
+
+    pending = [
+        Place(name="A", address="a", lat=37.5, lng=127.0, district="강남구"),
+        Place(name="B", address="b", lat=37.5, lng=127.0, district="강남구"),
+    ]
+    state = {
+        "utterance": "2번",
+        "params": RankingParams(place="어디"),
+        "ctx": ctx,
+        "pending": pending,
+    }
+    out = _run_geocode(state)
+    assert out["destination"].name == "B"
+    assert out["params"].place == "B"
+    assert out["pending"] is None

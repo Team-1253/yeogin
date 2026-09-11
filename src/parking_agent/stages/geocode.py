@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..tools.geocode import geocode_place, resolve_choice
 from ..types import GeocodeResult, ParkingState
 
@@ -12,6 +14,7 @@ from ..types import GeocodeResult, ParkingState
 def _resolve_pending(state: dict) -> dict | None:
     """pending 선택이 확정되면 destination을 채운 state를 돌려줍니다.
 
+    확정된 후보가 곧 유효 장소이므로 params.place도 후보명으로 갱신합니다.
     아니면 None을 돌려 정상 geocode 경로로 갑니다.
     """
     pending = state.get("pending")
@@ -22,6 +25,7 @@ def _resolve_pending(state: dict) -> dict | None:
         return None
     return {
         **state,
+        "params": replace(state["params"], place=resolved.name),
         "geocode_result": GeocodeResult(candidates=[resolved]),
         "destination": resolved,
         "pending": None,

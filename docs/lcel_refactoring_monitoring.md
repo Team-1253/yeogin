@@ -226,3 +226,12 @@
   `run(..., pending=None)` + `demo_cli` 턴 전달.
 - 검증: rule `48 passed, 4 skipped` + live 전체 **`52 passed`**.
   "2번"→2번 후보 확정, "9"→재질문+pending 유지 실증.
+
+### 5.5 선택 후 stale place + 되묻기 위치 누락
+
+- 이슈1: pending 확정 후 빈 결과 메시지가 원래 쿼리명("은평구")을 그대로 사용.
+  조치 — 확정 시 `params.place`를 후보명으로 갱신 (`dataclasses.replace`,
+  stage·fallback 양쪽). 이후 search/format 메시지가 후보명을 사용.
+- 이슈2: 되묻기에 사용자 언급 위치 없음. 조치 — ambiguous 메시지에
+  `'{place}' 근처로 보이는 곳이 여러 곳 있습니다` 형태로 포함 (stage·fallback 양쪽).
+- 검증: rule `50 passed, 4 skipped` + live 전체 **`54 passed`**.
