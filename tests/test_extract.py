@@ -256,68 +256,42 @@ def _slot(slot: str, **kwargs):
     return schemas[slot](**base)
 
 
-def _good_slots():
-    """S1相当의 정상 슬롯 응답입니다."""
-    return {
-        "place": _slot("place", place="강남역"),
-        "duration": _slot("duration", duration_minutes=120),
-        "budget": _slot("budget", budget_won=10000),
-        "sort": _slot("sort"),
-    }
-
-
-def test_llm_슬롯조립이_동작한다(monkeypatch):
-    """슬롯 4개를 모아 RankingParams를 만듭니다."""
+def test_llm_선택에_따라_조립한다(monkeypatch):
+    """모델이 선택한 슬롯만 실행해 RankingParams를 만듭니다."""
     monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
-    responses = _good_slots()
     monkeypatch.setattr(
-        extract_mod, "_call_slot_llm", lambda slot, utterance, feedback=None: responses[slot]
+        extract_mod,
+        "_run_slot_agent",
+        lambda utterance: ["place", "duration", "budget"],
     )
     params = extract_params("강남역 근처 2시간 주차, 만원 이하")
     assert params.place == "강남역"
     assert params.duration_minutes == 120
     assert params.budget_won == 10000
     assert params.sort_by == "distance"
+    assert extract_mod.LAST_SLOT_CALLS == ["place", "duration", "budget"]
 
 
-def test_llm_슬롯예외시_턴전체가_폴백한다(monkeypatch):
-    """슬롯 1개라도 예외면 규칙 결과로 통째로 폴백합니다."""
+def test_llm_선택실패시_턴전체가_폴백한다(monkeypatch):
+    """선택 에이전트가 예외(None)면 규칙 결과로 통째로 폴백합니다."""
     monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
-    responses = _good_slots()
-
-    def fake_call(slot, utterance, feedback=None):
-        if slot == "budget":
-            return None
-        return responses[slot]
-
-    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    monkeypatch.setattr(extract_mod, "_run_slot_agent", lambda utterance: None)
     params = extract_params("강남역 근처 2시간 주차, 만원 이하")
     assert params.place == "강남역"
     assert params.budget_won == 10000
+    assert extract_mod.LAST_SLOT_CALLS == []
 
 
-def test_구조화실패시_해당슬롯만_재요청한다(monkeypatch):
-    """실패 슬롯만 feedback과 함께 다시 받아옵니다."""
-    calls: list = []
-    bad = _slot("place", place="엉뚱한곳")
-    good = _slot("place", place="강남역")
-    responses = _good_slots()
-
-    def fake_call(slot, utterance, feedback=None):
-        calls.append((slot, feedback))
-        if slot == "place":
-            return bad if feedback is None else good
-        return responses[slot]
-
-    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
-    params = extract_mod._extract_by_llm("강남역 근처 2시간 주차, 만원 이하")
-    assert params is not None
-    assert params.place == "강남역"
-    place_calls = [c for c in calls if c[0] == "place"]
-    assert len(place_calls) == 2
-    assert place_calls[0][1] is None
-    assert "장소" in (place_calls[1][1] or "")
-    assert sum(1 for c in calls if c[0] != "place") == 2
+def test_모델의_도구선택을_슬롯으로_번역한다():
+    """tool_calls 이름을 고정 순서 슬롯으로 바꾸고 모르는 도구는 버립니다."""
+    calls = [
+        {"name": "extract_sort", "args": {}},
+        {"name": "unknown_tool", "args": {}},
+        {"name": "extract_place", "args": {}},
+        {"name": "extract_sort", "args": {}},
+    ]
+    assert extract_mod._tool_calls_to_slots(calls) == ["place", "sort"]
+    assert extract_mod._tool_calls_to_slots(None) == []
 
 
 def test_llm_모듈이_없어도_예외없이_폴백한다(monkeypatch):
@@ -396,69 +370,95 @@ def test_검증이_근거없는_price를_잡는다():
 
 
 # --------------------------------------------------------------------------
-# 조건부 슬롯 호출: 신호가 있는 슬롯만 요청합니다.
+# 도구 등록 계약: 선택 에이전트에 슬롯 도구가 바인딩됩니다.
 # --------------------------------------------------------------------------
 
 
-def test_게이트가_필요한_슬롯만_고른다():
-    """S1은 3개, S4 후속은 sort만, 빈 발화는 0개입니다."""
-    assert extract_mod._needed_slots("강남역 근처 2시간 주차, 만원 이하") == [
-        "place",
-        "duration",
-        "budget",
-    ]
-    assert extract_mod._needed_slots("너무 비싸") == ["sort"]
-    assert extract_mod._needed_slots("2시간으로 바꿔줘") == ["duration"]
-    assert extract_mod._needed_slots("주차장 찾아줘") == []
-    assert extract_mod._needed_slots("공원 근처 주차장") == ["place"]
+def test_선택에이전트에_도구가_등록된다():
+    """SLOT_TOOLS는 langchain tool 객체이고 선택 에이전트가 사용합니다."""
+    pytest.importorskip("langchain_core.tools")
+    from langchain_core.tools import BaseTool
+
+    assert len(extract_mod.SLOT_TOOLS) == 4
+    for tool in extract_mod.SLOT_TOOLS:
+        assert isinstance(tool, BaseTool)
+    assert extract_mod._TOOL_TO_SLOT == {
+        "extract_place": "place",
+        "extract_duration": "duration",
+        "extract_budget": "budget",
+        "extract_sort": "sort",
+    }
 
 
-def test_후속발화는_해당슬롯만_호출한다(monkeypatch):
-    """S4 "너무 비싸"는 sort 1회만 요청합니다."""
-    calls: list = []
+# --------------------------------------------------------------------------
+# 선택 실행 계약: 모델의 선택만 실행됩니다.
+# --------------------------------------------------------------------------
 
-    def fake_call(slot, utterance, feedback=None):
-        calls.append(slot)
-        return _slot("sort", sort_by="price")
 
+def test_후속발화는_선택된_슬롯만_실행한다(monkeypatch):
+    """S4 "너무 비싸"는 모델이 sort만 선택하면 sort만 실행합니다."""
     monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
-    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    monkeypatch.setattr(extract_mod, "_run_slot_agent", lambda utterance: ["sort"])
     prev = RankingParams(place="강남역", duration_minutes=120, budget_won=10000)
     params = extract_params("너무 비싸", prev)
-    assert calls == ["sort"]
     assert extract_mod.LAST_SLOT_CALLS == ["sort"]
     assert params.place == "강남역"
     assert params.sort_by == "price"
 
 
-def test_생략된_sort는_직전선호를_유지한다(monkeypatch):
-    """정렬 신호 없는 후속은 호출 없이 prev를 유지합니다."""
-    calls: list = []
-
-    def fake_call(slot, utterance, feedback=None):
-        calls.append(slot)
-        return _slot("duration", duration_minutes=120)
-
+def test_선택되지_않은_sort는_직전선호를_유지한다(monkeypatch):
+    """모델이 sort를 선택하지 않으면 실행 없이 prev를 유지합니다."""
     monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
-    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    monkeypatch.setattr(extract_mod, "_run_slot_agent", lambda utterance: ["duration"])
     prev = RankingParams(place="강남역", duration_minutes=60, budget_won=10000, sort_by="price")
     params = extract_params("2시간으로 바꿔줘", prev)
-    assert calls == ["duration"]
+    assert extract_mod.LAST_SLOT_CALLS == ["duration"]
     assert params.duration_minutes == 120
     assert params.sort_by == "price"
 
 
-def test_신호없으면_0회호출한다(monkeypatch):
-    """장소·시간·예산·정렬 신호가 없으면 LLM을 호출하지 않습니다."""
-    calls: list = []
-
-    def fake_call(slot, utterance, feedback=None):
-        calls.append(slot)
-        raise AssertionError("호출되면 안 됩니다")
-
-    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+def test_선택이_비면_규칙으로_폴백한다(monkeypatch):
+    """모델이 아무 도구도 선택하지 않으면 규칙 경로로 폴백합니다."""
+    monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
+    monkeypatch.setattr(extract_mod, "_run_slot_agent", lambda utterance: [])
     params = extract_mod._extract_by_llm("주차장 찾아줘")
-    assert params is not None
-    assert params.place == ""
-    assert calls == []
+    assert params is None
     assert extract_mod.LAST_SLOT_CALLS == []
+
+
+# --------------------------------------------------------------------------
+# 스테이지 Runnable: 모듈의 최종 산출물입니다.
+# --------------------------------------------------------------------------
+
+
+def _stage_run(inputs):
+    """Runnable과 폴백 함수 양쪽에서 동작하도록 실행합니다."""
+    runnable = extract_mod.extract_runnable
+    if hasattr(runnable, "invoke"):
+        return runnable.invoke(inputs)
+    return runnable(inputs)
+
+
+def test_extract_runnable이_발화를_파싱한다():
+    """Runnable이 문자열 입력을 RankingParams로 바꿉니다."""
+    params = _stage_run("강남역 근처 2시간 주차")
+    assert params.place == "강남역"
+    assert params.duration_minutes == 120
+
+
+def test_extract_runnable이_prev를_병합한다():
+    """딕셔너리 입력은 utterance와 prev를 받아 병합합니다."""
+    prev = RankingParams(place="강남역", duration_minutes=120, budget_won=10000)
+    params = _stage_run({"utterance": "너무 비싸", "prev": prev})
+    assert params.place == "강남역"
+    assert params.sort_by == "price"
+    assert params.merged_from_previous
+
+
+def test_extract_runnable은_조립_가능한_객체다():
+    """langchain이 있으면 Runnable 인스턴스입니다."""
+    pytest.importorskip("langchain_core.runnables")
+    from langchain_core.runnables import Runnable
+
+    assert isinstance(extract_mod.extract_runnable, Runnable)
+    assert extract_mod.extract_runnable.invoke({"utterance": "코엑스 주차장"}).place == "코엑스"
