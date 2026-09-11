@@ -1,15 +1,124 @@
 """입력 이해 모듈 단위 테스트입니다. [담당: P2]
 
-규칙 기반 모드(`PARKING_AGENT_NO_LLM=1`)에서 동작합니다.
-LLM 경로는 mock으로 분리해 키 없이 검증합니다.
+도구별로 묶습니다. 규칙 기반 모드(`PARKING_AGENT_NO_LLM=1`)에서 동작합니다.
+LLM 슬롯은 mock으로 분리해 키 없이 검증합니다.
 """
 
 from __future__ import annotations
 
 import parking_agent.extract as extract_mod
-from parking_agent.extract import extract_params
+from parking_agent.extract import (
+    extract_budget,
+    extract_duration,
+    extract_params,
+    extract_place,
+    extract_sort,
+)
 from parking_agent.guardrails.input import check_request
 from parking_agent.types import RankingParams
+
+# --------------------------------------------------------------------------
+# 장소 도구
+# --------------------------------------------------------------------------
+
+
+def test_place_랜드마크를_찾는다():
+    """등록된 지명을 원형으로 돌려줍니다."""
+    assert extract_place("강남역 근처 2시간 주차") == "강남역"
+    assert extract_place("코엑스 가고 싶어") == "코엑스"
+
+
+def test_place_미지원_장소를_geocode까지_전달한다():
+    """S3: 모르는 이름도 비우지 않고 geocode 폴백에 넘깁니다."""
+    assert extract_place("은평구 주차장") == "은평구"
+
+
+def test_place_없으면_빈문자열을_둔다():
+    """S2: 장소를 추정하지 않습니다."""
+    assert extract_place("주차장 찾아줘") == ""
+
+
+def test_place_조사를_장소로_오인하지_않는다():
+    """ "2시간으로"의 로를 접미사로 보지 않습니다."""
+    assert extract_place("2시간으로 바꿔줘") == ""
+    assert extract_place("역삼로 주차장") == "역삼로"
+    prev = RankingParams(place="강남역", duration_minutes=60)
+    merged = extract_params("2시간으로 바꿔줘", prev)
+    assert merged.place == "강남역"
+    assert merged.duration_minutes == 120
+
+
+# --------------------------------------------------------------------------
+# 시간 도구
+# --------------------------------------------------------------------------
+
+
+def test_duration_시간을_분으로_바꾼다():
+    """2시간은 120분입니다."""
+    assert extract_duration("강남역 근처 2시간 주차") == 120
+
+
+def test_duration_반시간과_시간반을_다룬다():
+    """반시간은 30분, 2시간반은 150분입니다."""
+    assert extract_duration("시청 근처 반시간 주차") == 30
+    assert extract_duration("시청 근처 2시간반 주차") == 150
+    assert extract_duration("시청 근처 두시간 주차") == 120
+
+
+def test_duration_없으면_None을_둔다():
+    """언급이 없으면 추정하지 않습니다."""
+    assert extract_duration("강남역 근처 주차장") is None
+
+
+# --------------------------------------------------------------------------
+# 예산 도구
+# --------------------------------------------------------------------------
+
+
+def test_budget_만원을_원으로_바꾼다():
+    """S1: 단독 만원은 10000원입니다."""
+    assert extract_budget("강남역 근처 2시간 주차, 만원 이하") == 10000
+    assert extract_budget("2만원까지 찾아줘") == 20000
+
+
+def test_budget_없으면_None을_둔다():
+    """언급이 없으면 추정하지 않습니다."""
+    assert extract_budget("강남역 근처 2시간 주차") is None
+
+
+# --------------------------------------------------------------------------
+# 정렬 도구
+# --------------------------------------------------------------------------
+
+
+def test_sort_가격의도가_있을때만_price다():
+    """S4: 비싸다는 가격 정렬 의도입니다."""
+    assert extract_sort("너무 비싸") == "price"
+    assert extract_sort("강남역 근처 2시간 주차, 만원 이하") == "distance"
+
+
+# --------------------------------------------------------------------------
+# tool 별칭 계약 (에이전트 루프 호출 단위)
+# --------------------------------------------------------------------------
+
+
+def test_tool_별칭이_등록된다():
+    """슬롯별 tool 객체가 이름과 함께 존재합니다."""
+    for alias, keyword in (
+        ("extract_place_tool", "place"),
+        ("extract_duration_tool", "duration"),
+        ("extract_budget_tool", "budget"),
+        ("extract_sort_tool", "sort"),
+    ):
+        assert hasattr(extract_mod, alias), alias
+        tool = getattr(extract_mod, alias)
+        name = getattr(tool, "name", getattr(tool, "__name__", ""))
+        assert keyword in name, alias
+
+
+# --------------------------------------------------------------------------
+# 조립 계약: extract_params 전체 결과입니다.
+# --------------------------------------------------------------------------
 
 
 def test_s1_정상_발화를_파싱한다():
@@ -30,8 +139,8 @@ def test_s2_장소_누락시_차단한다():
     assert "목적지" in (message or "")
 
 
-def test_s3_미지원_장소를_geocode까지_전달한다():
-    """S3: LANDMARKS에 없어도 장소로 추출해 geocode 폴백에 도달시킵니다."""
+def test_s3_미지원_장소는_통과시킨다():
+    """S3: 추출은 통과하고 geocode 폴백에 맡깁니다."""
     params = extract_params("은평구 주차장")
     assert params.place == "은평구"
     ok, _ = check_request(params)
@@ -39,7 +148,7 @@ def test_s3_미지원_장소를_geocode까지_전달한다():
 
 
 def test_s4_후속_발화를_병합한다():
-    """S4: "너무 비싸"는 기존 조건 유지 + 가격 정렬 전환입니다."""
+    """S4: 기존 조건 유지 + 가격 정렬 전환입니다."""
     prev = extract_params("강남역 근처 2시간 주차, 만원 이하")
     merged = extract_params("너무 비싸", prev)
     assert merged.place == "강남역"
@@ -55,20 +164,6 @@ def test_후속_일반발화가_price선호를_유지한다():
     merged = extract_params("2시간으로 바꿔줘", prev)
     assert merged.duration_minutes == 120
     assert merged.sort_by == "price"
-
-
-def test_단독_만원을_예산으로_본다():
-    """숫자 없는 "만원"은 10000원입니다."""
-    params = extract_params("코엑스 근처 만원 이하로 찾아줘")
-    assert params.place == "코엑스"
-    assert params.budget_won == 10000
-
-
-def test_반시간과_시간반을_분으로_본다():
-    """반시간은 30분, 2시간반은 150분입니다."""
-    assert extract_params("시청 근처 반시간 주차").duration_minutes == 30
-    assert extract_params("시청 근처 2시간반 주차").duration_minutes == 150
-    assert extract_params("시청 근처 두시간 주차").duration_minutes == 120
 
 
 def test_인젝션_발화를_차단한다():
@@ -98,23 +193,94 @@ def test_budget_0을_유지한다():
     assert merged_zero.budget_won == 0
 
 
-def test_llm_실패시_규칙으로_폴백한다(monkeypatch):
-    """LLM이 None을 반환하면 규칙 결과가 사용됩니다."""
+# --------------------------------------------------------------------------
+# LLM 슬롯 조립 (mock — 네트워크 없이 검증합니다)
+# --------------------------------------------------------------------------
+
+
+def _slot(slot: str, **kwargs):
+    """슬롯별 가짜 응답을 만듭니다."""
+    schemas = {
+        "place": extract_mod._PlaceSlot,
+        "duration": extract_mod._DurationSlot,
+        "budget": extract_mod._BudgetSlot,
+        "sort": extract_mod._SortSlot,
+    }
+    base: dict = {"reasoning": "테스트"}
+    if slot == "place":
+        base["place"] = ""
+    elif slot == "duration":
+        base["duration_minutes"] = None
+    elif slot == "budget":
+        base["budget_won"] = None
+    elif slot == "sort":
+        base["sort_by"] = "distance"
+    base.update(kwargs)
+    return schemas[slot](**base)
+
+
+def _good_slots():
+    """S1相当의 정상 슬롯 응답입니다."""
+    return {
+        "place": _slot("place", place="강남역"),
+        "duration": _slot("duration", duration_minutes=120),
+        "budget": _slot("budget", budget_won=10000),
+        "sort": _slot("sort"),
+    }
+
+
+def test_llm_슬롯조립이_동작한다(monkeypatch):
+    """슬롯 4개를 모아 RankingParams를 만듭니다."""
     monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
-    monkeypatch.setattr(extract_mod, "_extract_by_llm", lambda utterance: None)
-    params = extract_params("강남역 근처 2시간 주차")
+    responses = _good_slots()
+    monkeypatch.setattr(
+        extract_mod, "_call_slot_llm", lambda slot, utterance, feedback=None: responses[slot]
+    )
+    params = extract_params("강남역 근처 2시간 주차, 만원 이하")
     assert params.place == "강남역"
     assert params.duration_minutes == 120
+    assert params.budget_won == 10000
+    assert params.sort_by == "distance"
 
 
-def test_llm_성공시_llm_결과를_쓴다(monkeypatch):
-    """LLM이 성공하면 규칙보다 LLM 결과를 우선합니다."""
+def test_llm_슬롯예외시_턴전체가_폴백한다(monkeypatch):
+    """슬롯 1개라도 예외면 규칙 결과로 통째로 폴백합니다."""
     monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
-    llm_params = RankingParams(place="역삼역", duration_minutes=60, budget_won=5000)
-    monkeypatch.setattr(extract_mod, "_extract_by_llm", lambda utterance: llm_params)
-    params = extract_params("아무 말")
-    assert params.place == "역삼역"
-    assert params.budget_won == 5000
+    responses = _good_slots()
+
+    def fake_call(slot, utterance, feedback=None):
+        if slot == "budget":
+            return None
+        return responses[slot]
+
+    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    params = extract_params("강남역 근처 2시간 주차, 만원 이하")
+    assert params.place == "강남역"
+    assert params.budget_won == 10000
+
+
+def test_구조화실패시_해당슬롯만_재요청한다(monkeypatch):
+    """실패 슬롯만 feedback과 함께 다시 받아옵니다."""
+    calls: list = []
+    bad = _slot("place", place="엉뚱한곳")
+    good = _slot("place", place="강남역")
+    responses = _good_slots()
+
+    def fake_call(slot, utterance, feedback=None):
+        calls.append((slot, feedback))
+        if slot == "place":
+            return bad if feedback is None else good
+        return responses[slot]
+
+    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    params = extract_mod._extract_by_llm("강남역 근처 2시간 주차, 만원 이하")
+    assert params is not None
+    assert params.place == "강남역"
+    place_calls = [c for c in calls if c[0] == "place"]
+    assert len(place_calls) == 2
+    assert place_calls[0][1] is None
+    assert "장소" in (place_calls[1][1] or "")
+    assert sum(1 for c in calls if c[0] != "place") == 2
 
 
 def test_llm_모듈이_없어도_예외없이_폴백한다(monkeypatch):
@@ -122,6 +288,7 @@ def test_llm_모듈이_없어도_예외없이_폴백한다(monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "langchain_openai", None)
+    monkeypatch.setitem(sys.modules, "langchain_core.tools", None)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert extract_mod._extract_by_llm("강남역 근처 2시간 주차") is None
 
@@ -132,66 +299,105 @@ def test_llm_장소_접미사를_걷어낸다():
     assert extract_mod._clean_place("홍대입구 주차장") == "홍대입구"
 
 
-def _schema(**kwargs):
-    """검증 테스트용 스키마를 만듭니다."""
-    base = {
-        "reasoning": "테스트",
-        "place": "",
-        "duration_minutes": None,
-        "budget_won": None,
-        "sort_by": "distance",
-    }
-    base.update(kwargs)
-    return extract_mod._ExtractSchema(**base)
+# --------------------------------------------------------------------------
+# 슬롯 검증 (순수 판정 — 네트워크 없이 검증합니다)
+# --------------------------------------------------------------------------
 
 
-def test_검증이_정상_추출을_통과시킨다():
-    """근거 있는 값에는 문제점이 없습니다."""
-    result = _schema(place="강남역", duration_minutes=120, budget_won=10000)
-    assert extract_mod._validate_extraction("강남역 근처 2시간 주차, 만원 이하", result) == []
+def test_검증이_정상_슬롯을_통과시킨다():
+    """근거 있는 슬롯에는 문제점이 없습니다."""
+    utterance = "강남역 근처 2시간 주차, 만원 이하"
+    assert extract_mod._validate_place(utterance, _slot("place", place="강남역")) == []
+    assert extract_mod._validate_duration(utterance, _slot("duration", duration_minutes=120)) == []
+    assert extract_mod._validate_budget(utterance, _slot("budget", budget_won=10000)) == []
+    assert extract_mod._validate_sort(utterance, _slot("sort")) == []
 
 
 def test_검증이_없는_장소를_잡는다():
     """발화에 없는 장소는 환각으로 판정합니다."""
-    issues = extract_mod._validate_extraction("주차장 찾아줘", _schema(place="강남역"))
+    issues = extract_mod._validate_place("주차장 찾아줘", _slot("place", place="강남역"))
     assert any("장소" in issue for issue in issues)
 
 
 def test_검증이_지어낸_시간과_예산을_잡는다():
     """언급 없이 채운 시간·예산을 판정합니다."""
-    time_issues = extract_mod._validate_extraction("강남역 근처", _schema(duration_minutes=60))
+    time_issues = extract_mod._validate_duration(
+        "강남역 근처", _slot("duration", duration_minutes=60)
+    )
     assert any("시간" in issue for issue in time_issues)
-    money_issues = extract_mod._validate_extraction("강남역 근처", _schema(budget_won=5000))
+    money_issues = extract_mod._validate_budget("강남역 근처", _slot("budget", budget_won=5000))
     assert any("금액" in issue for issue in money_issues)
 
 
 def test_검증이_근거없는_price를_잡는다():
     """정렬 의도 없이 price를 내놓으면 판정합니다."""
-    issues = extract_mod._validate_extraction("강남역 근처 2시간 주차", _schema(sort_by="price"))
+    issues = extract_mod._validate_sort("강남역 근처 2시간 주차", _slot("sort", sort_by="price"))
     assert any("price" in issue for issue in issues)
 
 
-def test_구조화실패시_재요청으로_교정한다(monkeypatch):
-    """규칙 폴백이 아니라 같은 LLM 경로에서 다시 받아옵니다."""
-    calls = []
-    bad = _schema(place="엉뚱한곳")
-    good = _schema(place="강남역", duration_minutes=120)
+# --------------------------------------------------------------------------
+# 조건부 슬롯 호출: 신호가 있는 슬롯만 요청합니다.
+# --------------------------------------------------------------------------
 
-    def fake_call(utterance, feedback=None):
-        calls.append(feedback)
-        return bad if feedback is None else good
 
-    monkeypatch.setattr(extract_mod, "_call_llm", fake_call)
-    params = extract_mod._extract_by_llm("강남역 근처 2시간 주차")
-    assert params is not None
+def test_게이트가_필요한_슬롯만_고른다():
+    """S1은 3개, S4 후속은 sort만, 빈 발화는 0개입니다."""
+    assert extract_mod._needed_slots("강남역 근처 2시간 주차, 만원 이하") == [
+        "place",
+        "duration",
+        "budget",
+    ]
+    assert extract_mod._needed_slots("너무 비싸") == ["sort"]
+    assert extract_mod._needed_slots("2시간으로 바꿔줘") == ["duration"]
+    assert extract_mod._needed_slots("주차장 찾아줘") == []
+
+
+def test_후속발화는_해당슬롯만_호출한다(monkeypatch):
+    """S4 "너무 비싸"는 sort 1회만 요청합니다."""
+    calls: list = []
+
+    def fake_call(slot, utterance, feedback=None):
+        calls.append(slot)
+        return _slot("sort", sort_by="price")
+
+    monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
+    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    prev = RankingParams(place="강남역", duration_minutes=120, budget_won=10000)
+    params = extract_params("너무 비싸", prev)
+    assert calls == ["sort"]
+    assert extract_mod.LAST_SLOT_CALLS == ["sort"]
     assert params.place == "강남역"
+    assert params.sort_by == "price"
+
+
+def test_생략된_sort는_직전선호를_유지한다(monkeypatch):
+    """정렬 신호 없는 후속은 호출 없이 prev를 유지합니다."""
+    calls: list = []
+
+    def fake_call(slot, utterance, feedback=None):
+        calls.append(slot)
+        return _slot("duration", duration_minutes=120)
+
+    monkeypatch.setenv("PARKING_AGENT_NO_LLM", "0")
+    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    prev = RankingParams(place="강남역", duration_minutes=60, budget_won=10000, sort_by="price")
+    params = extract_params("2시간으로 바꿔줘", prev)
+    assert calls == ["duration"]
     assert params.duration_minutes == 120
-    assert len(calls) == 2
-    assert calls[0] is None
-    assert "장소" in (calls[1] or "")
+    assert params.sort_by == "price"
 
 
-def test_api예외시에만_규칙으로_폴백한다(monkeypatch):
-    """_call_llm이 None이면 _extract_by_llm도 None을 둡니다."""
-    monkeypatch.setattr(extract_mod, "_call_llm", lambda utterance, feedback=None: None)
-    assert extract_mod._extract_by_llm("강남역 근처 2시간 주차") is None
+def test_신호없으면_0회호출한다(monkeypatch):
+    """장소·시간·예산·정렬 신호가 없으면 LLM을 호출하지 않습니다."""
+    calls: list = []
+
+    def fake_call(slot, utterance, feedback=None):
+        calls.append(slot)
+        raise AssertionError("호출되면 안 됩니다")
+
+    monkeypatch.setattr(extract_mod, "_call_slot_llm", fake_call)
+    params = extract_mod._extract_by_llm("주차장 찾아줘")
+    assert params is not None
+    assert params.place == ""
+    assert calls == []
+    assert extract_mod.LAST_SLOT_CALLS == []
