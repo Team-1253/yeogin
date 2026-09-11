@@ -207,6 +207,11 @@
 - 검증: rule `45 passed, 4 skipped` + 순환 import 없음 +
   extract live 4/4 (luna) + format 실 invoke 가드 확인
   (REQUIRED_NOTICE·수치 인용) + live 전체 **`49 passed`** (오버라이드 없음).
-  잔여 [중]은 `HAS_LCEL=False` 데드 코드 1건のみ.
+   잔여 [중]은 `HAS_LCEL=False` 데드 코드 1건のみ.
    실시간 추적 명령 예:
    `wmux read-screen --surface surf-3e191beb-8bba-4208-92e8-c64627ddb285 --lines 60`
+
+### 5.3 통합본 실행검증 기록
+
+- 통합본(dev, `2158cf3`, origin 동기화) 실행검증: rule `45 passed, 4 skipped` +
+  live 전체 **`49 passed**`. 푸시 후 동일 결과 재현.
