@@ -255,6 +255,20 @@ _SLOT_SCHEMAS = {
 }
 
 
+def _build_messages(system_prompt: str, utterance: str) -> list | str:
+    """시스템 지시와 사용자 발화를 역할 분리합니다.
+
+    langchain이 있으면 System/Human 메시지로 나누어 지시 계층을 명확히 합니다.
+    없으면 평탄 문자열로 두어 규칙 경로와 기존 동작을 유지합니다.
+    """
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        return [SystemMessage(content=system_prompt), HumanMessage(content=f"발화: {utterance}")]
+    except Exception:
+        return f"{system_prompt}\n발화: {utterance}"
+
+
 def _call_slot_llm(slot: str, utterance: str, feedback: str | None = None) -> BaseModel | None:
     """슬롯 1개를 LLM에 1회 요청합니다.
 
@@ -278,7 +292,7 @@ def _call_slot_llm(slot: str, utterance: str, feedback: str | None = None) -> Ba
         )
         if feedback:
             prompt = f"{prompt}\n이전 추출 문제점: {feedback}\n위 문제를 고쳐 다시 추출하십시오."
-        return model.with_structured_output(schema).invoke(f"{prompt}\n발화: {utterance}")
+        return model.with_structured_output(schema).invoke(_build_messages(prompt, utterance))
     except Exception:
         return None
 
