@@ -142,7 +142,7 @@ else:  # pragma: no cover
         rr = rank_candidates(er, params, state["ctx"])
         state = {**state, "search_result": sr, "evaluation_result": er, "rank_result": rr}
         # 7 format
-        ans = format_answer(rr, params, state["ctx"])
+        ans = format_answer(rr, params, state["ctx"], state.get("utterance", ""))
         state = {**state, "answer": ans}
         # 8 guard
         verdict, reason = check_response(ans, rr)

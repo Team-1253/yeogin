@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-import os
-
 from .context import is_llm_disabled
 from .types import RankingParams, RankResult, RequestContext
 
@@ -14,14 +12,26 @@ FIELD_LABELS = {"duration_minutes": "주차 시간은 1시간 기준"}
 REQUIRED_NOTICE = "현재 조회 데이터 기준"
 
 
-def format_answer(result: RankResult, params: RankingParams, ctx: RequestContext) -> str:
-    """추천 결과를 사용자 문장으로 만듭니다."""
+def format_answer(
+    result: RankResult,
+    params: RankingParams,
+    ctx: RequestContext,
+    utterance: str = "",
+) -> str:
+    """추천 결과를 사용자 문장으로 만듭니다.
+
+    LLM 경로는 도입부(발화에 대한 대화형 반응) + 결정론적 목록으로 구성하고,
+    실패 시 템플릿으로 폴백합니다.
+    """
     if result.is_empty:
         return _format_empty(result, params)
 
     if is_llm_disabled():
         return _format_by_template(result, params)
-    return _format_by_llm(result, params, ctx) or _format_by_template(result, params)
+    return (
+        _format_by_llm(result, params, ctx, utterance)
+        or _format_by_template(result, params)
+    )
 
 
 def _format_empty(result: RankResult, params: RankingParams) -> str:
@@ -55,28 +65,32 @@ def _format_by_template(result: RankResult, params: RankingParams) -> str:
     return "\n".join(lines)
 
 
-def _format_by_llm(result, params, ctx) -> str | None:
-    """LLM으로 설명 문장을 생성합니다.
+def format_with_intro(
+    result: RankResult, params: RankingParams, utterance: str
+) -> str | None:
+    """LLM 도입부 + 템플릿 목록을 합칩니다.
 
-    LLM은 설명의 자연스러움만 담당하고, 추천 수치의 원천은 ``result``로
-    고정합니다. 모듈 레벨의 formatting_chain을 재사용하며, 실패 시 None을 반환해
-    템플릿으로 폴백합니다.
+    도입부는 발화에 대한 대화형 반응 한두 문장으로, 숫자·금액·거리·주차장명·
+    시각을 포함하지 않도록 체인 프롬프트에서 금지합니다. 목록과 고지 문구는
+    템플릿이 그대로 담당하므로 환각 원천이 없습니다. 도입부 생성 실패·빈값이면
+    None을 돌려 템플릿 전체 폴백으로 갑니다.
     """
     try:
-        # Phase 5: 모듈 레벨 체인 재사용 (매 호출마다 prompt/model 생성 제거)
         from .chains.formatting_chain import formatting_chain
 
         if formatting_chain is None:
             return None
-
-        recommendations = "\n".join(
-            f"{r.rank}. {r.name} | 거리={r.distance_m}m | 요금={r.fee_text} | "
-            f"잔여={r.availability_text} | 운영={r.hours_text}"
-            for r in result.recommendations
+        intro = formatting_chain.invoke(
+            {"place": params.place, "utterance": utterance}
         )
-        response = formatting_chain.invoke(
-            {"place": params.place, "recommendations": recommendations}
-        )
-        return response.strip() if isinstance(response, str) and response.strip() else None
+        intro = intro.strip() if isinstance(intro, str) else ""
+        if not intro:
+            return None
+        return intro + "\n" + _format_by_template(result, params)
     except Exception:
         return None
+
+
+def _format_by_llm(result, params, ctx, utterance: str = "") -> str | None:
+    """LLM 도입부를 생성합니다. 실패 시 None으로 템플릿 폴백합니다."""
+    return format_with_intro(result, params, utterance)
