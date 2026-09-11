@@ -46,13 +46,13 @@
 각자 **자기 소유 파일만** 수정합니다. 남의 파일에 손대야 하는 상황이 생기면
 직접 고치지 말고 조 채널에 요청하십시오.
 
-| 담당   | 역할               | 소유 파일                                                                     |
-| ------ | ------------------ | ----------------------------------------------------------------------------- |
-| **P1** | 계약·통합·데모     | `types.py` · `context.py` · `pipeline.py` · `scripts/demo_cli.py` · `docs/`   |
-| **P2** | 입력 이해          | `extract.py` · `guardrails/input.py` · `tests/test_extract.py`                |
-| **P3** | 지오코딩·자치구    | `tools/geocode.py` · `tools/districts.py` · `tests/test_geocode.py`           |
-| **P4** | 데이터 소스        | `tools/search.py` · `sources/seoul_api.py` · `data/` · `tests/test_search.py` |
-| **P5** | 계산·판정          | `tools/evaluate.py` · `tests/test_evaluate.py`                                |
+| 담당 | 역할 | 소유 파일 |
+|---|---|---|
+| **P1** | 계약·통합·데모 | `types.py` · `context.py` · `pipeline.py` · `scripts/demo_cli.py` · `docs/` |
+| **P2** | 입력 이해 | `extract.py` · `guardrails/input.py` · `tests/test_extract.py` |
+| **P3** | 지오코딩·자치구 | `tools/geocode.py` · `tools/districts.py` · `tests/test_geocode.py` |
+| **P4** | 데이터 소스 | `tools/search.py` · `sources/seoul_api.py` · `data/` · `tests/test_search.py` |
+| **P5** | 계산·판정 | `tools/evaluate.py` · `tests/test_evaluate.py` |
 | **P6** | 랭킹·응답·출력검증 | `tools/rank.py` · `format.py` · `guardrails/output.py` · `tests/test_rank.py` |
 
 ### 작업 크기와 의존성
@@ -81,16 +81,16 @@ P4는 외부 API 의존이 커서 막힐 위험이 가장 높습니다. 1시간 
 
 전체 정의는 `src/parking_agent/types.py`에 있습니다. 요약하면 이렇습니다.
 
-| 단계                | 입력                                                       | 출력                       |
-| ------------------- | ---------------------------------------------------------- | -------------------------- |
-| extract_params      | `str`, `RankingParams \| None`                             | `RankingParams`            |
-| check_request       | `RankingParams`                                            | `tuple[bool, str \| None]` |
-| geocode_place       | `str`, `RequestContext`                                    | `GeocodeResult`            |
-| search_parking      | `Place`, `RequestContext`                                  | `SearchResult`             |
-| evaluate_candidates | `SearchResult`, `Place`, `RankingParams`, `RequestContext` | `EvaluationResult`         |
-| rank_candidates     | `EvaluationResult`, `RankingParams`, `RequestContext`      | `RankResult`               |
-| format_answer       | `RankResult`, `RankingParams`, `RequestContext`            | `str`                      |
-| check_response      | `str`, `RankResult`                                        | `tuple[str, str \| None]`  |
+| 단계 | 입력 | 출력 |
+|---|---|---|
+| extract_params | `str`, `RankingParams \| None` | `RankingParams` |
+| check_request | `RankingParams` | `tuple[bool, str \| None]` |
+| geocode_place | `str`, `RequestContext` | `GeocodeResult` |
+| search_parking | `Place`, `RequestContext` | `SearchResult` |
+| evaluate_candidates | `SearchResult`, `Place`, `RankingParams`, `RequestContext` | `EvaluationResult` |
+| rank_candidates | `EvaluationResult`, `RankingParams`, `RequestContext` | `RankResult` |
+| format_answer | `RankResult`, `RankingParams`, `RequestContext` | `str` |
+| check_response | `str`, `RankResult` | `tuple[str, str \| None]` |
 
 ### 계약 변경 절차
 

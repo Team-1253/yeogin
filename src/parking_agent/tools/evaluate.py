@@ -12,6 +12,16 @@ from ..types import (
     ParkingLot,
     Place,
     RankingParams,
+<<<<<<< HEAD
+    RejectReason,
+    RequestContext,
+)
+from .geocode import haversine_m
+
+
+def evaluate_candidates(
+    search,
+=======
     Rejection,
     RejectReason,
     RequestContext,
@@ -24,6 +34,7 @@ MINUTES_PER_DAY = 24 * 60
 
 def evaluate_candidates(
     search: SearchResult,
+>>>>>>> db09a8964a79fedc8678b9d0a780a739143f3d0b
     destination: Place,
     params: RankingParams,
     ctx: RequestContext,
@@ -37,7 +48,11 @@ def evaluate_candidates(
     assumed = [] if params.duration_minutes else ["duration_minutes"]
 
     passed: list[Evaluation] = []
+<<<<<<< HEAD
+    rejected: list = []
+=======
     rejected: list[Rejection] = []
+>>>>>>> db09a8964a79fedc8678b9d0a780a739143f3d0b
 
     for lot in search.lots:
         reasons: list[RejectReason] = []
@@ -62,6 +77,11 @@ def evaluate_candidates(
             reasons.append("예산 초과")
 
         if reasons:
+<<<<<<< HEAD
+            from ..types import Rejection
+
+=======
+>>>>>>> db09a8964a79fedc8678b9d0a780a739143f3d0b
             rejected.append(Rejection(lot_name=lot.name, reasons=reasons))
             continue
 
@@ -83,6 +103,12 @@ def evaluate_candidates(
 
 def _check_hours(lot: ParkingLot, ctx: RequestContext) -> tuple[bool, int | None]:
     """운영 여부와 마감까지 남은 분을 반환합니다.
+<<<<<<< HEAD
+
+    TODO(P5): 요일 구분(ctx.day_type)별 운영시간 필드를 반영하십시오.
+    24시간 운영이면 (True, None)을 반환합니다.
+=======
+>>>>>>> db09a8964a79fedc8678b9d0a780a739143f3d0b
     """
     if not lot.open_time or not lot.close_time:
         return True, None
@@ -92,6 +118,11 @@ def _check_hours(lot: ParkingLot, ctx: RequestContext) -> tuple[bool, int | None
     now = ctx.request_time.hour * 60 + ctx.request_time.minute
     open_m = int(lot.open_time[:2]) * 60 + int(lot.open_time[2:])
     close_m = int(lot.close_time[:2]) * 60 + int(lot.close_time[2:])
+<<<<<<< HEAD
+    if not (open_m <= now < close_m):
+        return False, 0
+    return True, close_m - now
+=======
 
     if open_m < close_m:
         if not (open_m <= now < close_m):
@@ -104,6 +135,7 @@ def _check_hours(lot: ParkingLot, ctx: RequestContext) -> tuple[bool, int | None
     if now < close_m:
         return True, close_m - now
     return False, 0
+>>>>>>> db09a8964a79fedc8678b9d0a780a739143f3d0b
 
 
 def _calculate_fee(
