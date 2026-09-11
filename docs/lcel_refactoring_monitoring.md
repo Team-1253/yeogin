@@ -255,3 +255,10 @@
 - 기록 과정에서 luna 도입부에 `<|endoftext|>` 유출 발견. 조치 —
   `format_with_intro`에 `_JUNK_TOKEN(<\|.*?\|>)` 제거 추가 + 회귀 테스트.
 - 검증: rule `52 passed, 4 skipped` + live 전체 **`56 passed`**.
+
+### 5.8 노트북 직접 실행 기록
+
+- `nbclient` 실커널로 노트북 전체 직접 실행 (stdin은 데모 입력으로 응답).
+  대화형 셀까지 포함한 전 셀 output·execution_count를 파일에 기록.
+- 프롬프트에 "한국어 외 다른 언어 금지" 추가 후 재실행 — 외국어 혼입·특수토큰·
+  에러 0건 확인.
