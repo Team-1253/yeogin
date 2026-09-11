@@ -63,6 +63,15 @@ def load_from_api(districts: Iterable[str]) -> list[ParkingLot]:
     """
     # 하나의 자치구
     # 키 읽기 -> url 구성 -> 요청 -> 오류 확인 -> JSON 해석 -> GetParkingInfo.RESULT.CODE 확인 → row 목록 추출
+    
+    # 유효한, 음이 아니 정수만 반환
+    def to_int(value: object) -> int | None:
+        """유효한 음이 아닌 정수만 반환합니다."""
+        try:
+            number = float(str(value))
+            return int(number) if number >= 0 and number.is_integer() else None
+        except (ValueError, OverflowError):
+            return None
 
     # api key
     key = os.getenv("SEOUL_OPENAPI_KEY")
@@ -73,20 +82,7 @@ def load_from_api(districts: Iterable[str]) -> list[ParkingLot]:
 
     lots = []
     timeout_seconds = 10
-
-    # 유효한, 음이 아니 정수만 반환
-    def to_int(value: object) -> int | None:
-        """유효한 음이 아닌 정수만 반환합니다."""
-        try:
-            number = float(str(value))
-            return int(number) if number >= 0 and number.is_integer() else None
-        except (ValueError, OverflowError):
-            return None
-
-    lots = []
-    timeout_seconds = 10
-
-    lots = []
+    
     try:
         for district in districts:
             url = (
