@@ -66,6 +66,8 @@ KOREAN_MANWON = {
 #: "구"를 포함합니다. ("은평구" → geocode의 "지원하지 않는 장소" 안내)
 PLACE_SUFFIXES = r"역|구청|구|동|로|길|점|몰|공원|타워|시장|백화점"
 
+#: 슬롯 선택 에이전트의 기본 모델입니다. luna는 Responses API 경로로 호출합니다
+#: (_chat_model 참고). chat/completions 직접 호출은 function tools에서 400을 일으킵니다.
 LLM_MODEL_DEFAULT = "gpt-5.6-luna"
 LLM_TIMEOUT_SECONDS = 10
 
@@ -235,20 +237,37 @@ _SELECTION_POLICY = (
 )
 
 
+def _chat_model():
+    """슬롯 선택용 모델을 만듭니다.
+
+    luna 등 reasoning 모델은 chat/completions에서 function tools가 400을
+    일으키므로 Responses API 경로로 호출합니다. 슬롯 선택은 분류 작업이라
+    reasoning effort는 none으로 둡니다. 일반 모델은 기존 경로를 유지합니다.
+    """
+    from langchain_openai import ChatOpenAI
+
+    name = os.getenv("MODEL_NAME", LLM_MODEL_DEFAULT)
+    if "luna" in name or name.startswith("gpt-5"):
+        return ChatOpenAI(
+            model=name,
+            use_responses_api=True,
+            reasoning={"effort": "none"},
+            timeout=LLM_TIMEOUT_SECONDS,
+        )
+    return ChatOpenAI(
+        model=name,
+        temperature=0,
+        timeout=LLM_TIMEOUT_SECONDS,
+    )
+
+
 def _bind_slot_tools():
     """슬롯 도구 4개를 모델에 등록한 Runnable을 만듭니다.
 
     등록은 bind_tools로 수행합니다. 모델은 도구를 실행하지 않고
     호출할 도구를 선택만 하며, 실제 실행은 코드가 합니다.
     """
-    from langchain_openai import ChatOpenAI
-
-    model = ChatOpenAI(
-        model=os.getenv("MODEL_NAME", LLM_MODEL_DEFAULT),
-        temperature=0,
-        timeout=LLM_TIMEOUT_SECONDS,
-    )
-    return model.bind_tools(list(SLOT_TOOLS))
+    return _chat_model().bind_tools(list(SLOT_TOOLS))
 
 
 def _tool_calls_to_slots(tool_calls) -> list[str]:

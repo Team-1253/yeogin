@@ -14,8 +14,10 @@ def test_s2_장소_누락시_명확화_질문(ctx):
     assert "목적지" in response.answer
 
 
-def test_s3_미지원_장소는_폴백_안내(ctx):
+def test_s3_미지원_장소는_폴백_안내(ctx, monkeypatch):
     """S3: 스택 노출 없이 지원 목록을 안내합니다."""
+    # Kakao 키 유무에 결과가 갈리므로 키를 제거해 LANDMARKS-only 모드로 고정합니다.
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
     response = run("은평구청 근처 주차장", ctx)
     assert "지원하지 않는" in response.answer
     assert "Traceback" not in response.answer

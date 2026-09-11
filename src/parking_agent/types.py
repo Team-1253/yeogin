@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypedDict
 
 # --------------------------------------------------------------------------
 # 공통 상수
@@ -261,3 +261,37 @@ class AgentResponse:
     #: 출력 가드레일 판정입니다. "SAFE" 또는 "UNSAFE"입니다.
     verdict: str = "SAFE"
     verdict_reason: str | None = None
+
+
+# --------------------------------------------------------------------------
+# LCEL Pipeline State (P1 계약) — Phase 2 동결
+# --------------------------------------------------------------------------
+
+
+class ParkingState(TypedDict, total=False):
+    """LCEL 파이프라인이 공유하는 상태입니다.
+
+    각 stage는 이 state를 입력받아 자신의 결과를 추가한 새 state를 반환합니다.
+    초기 상태는 utterance/prev_params/ctx 3종이며, 이후 단계에서 순차적으로
+    params → geocode_result → destination → search_result → evaluation_result
+    → rank_result → answer → verdict 로 누적됩니다.
+    """
+
+    utterance: str
+    prev_params: RankingParams | None
+    ctx: RequestContext
+
+    params: RankingParams
+    is_valid: bool
+    validation_message: str | None
+
+    geocode_result: GeocodeResult
+    destination: Place | None
+
+    search_result: SearchResult
+    evaluation_result: EvaluationResult
+    rank_result: RankResult | None
+
+    answer: str
+    verdict: str
+    verdict_reason: str | None
