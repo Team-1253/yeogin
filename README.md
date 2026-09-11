@@ -67,6 +67,25 @@ src/parking_agent/
     └── seoul_api.py      서울시 API 어댑터 (P4)
 ```
 
+## 파이프라인
+
+```mermaid
+flowchart TD
+    U(["발화 utterance"]) --> E["extract\nLLM 슬롯 선택 + 규칙 실행"]
+    E --> V["validate\n입력 가드레일"]
+    V -->|invalid| VF["안내 응답"]
+    V -->|valid| G["geocode\npending 선택이면 호출 없이 확정"]
+    G -->|0건| GN["미지원 안내"]
+    G -->|2건 이상| GA["되묻기 + pending 저장"]
+    GA -. "다음 턴 1/2/후보명" .-> G
+    G -->|1건 확정| S["search\n자치구 + 인접 조회"]
+    S --> EV["evaluate\n거리·시간·요금 계산"]
+    EV --> R["rank\nTop 3"]
+    R --> F["format\nLLM 도입부 + 결정론적 목록"]
+    F --> O["output_guard\n수치 대조"]
+    O --> A(["AgentResponse"])
+```
+
 분업 규칙과 데이터 계약은 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)를 먼저 읽으십시오.
 
 ## 현재 상태
